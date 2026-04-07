@@ -123,6 +123,25 @@ function movePlayer(game, playerIndex, amount) {
   game.players[playerIndex].position += amount;
 }
 
+function countCardsOfTypeOnPlayerBoard(game, playerIndex, type) {
+  return game.players[playerIndex].columns.reduce(
+    (total, column) =>
+      total + column.filter((card) => card.type === type).length,
+    0
+  );
+}
+
+function awardStar(game, playerIndex, reason) {
+  const player = game.players[playerIndex];
+  player.stars += 1;
+  game.log.unshift(`${player.name} gagne une etoile (${player.stars}/3) : ${reason}`);
+
+  if (player.stars >= 3) {
+    game.winner = player.name;
+    game.log.unshift(`${player.name} gagne la partie !`);
+  }
+}
+
 function getOppositePlayerIndex(playerIndex) {
   return playerIndex === 0 ? 1 : 0;
 }
@@ -144,9 +163,7 @@ function getZoneIndexFromPosition(position) {
 
 function applyCardEffect(game, playerIndex, card, columnIndex) {
   switch (card.type) {
-    case "skeleton":
     case "slime":
-    case "zombie":
     case "ghost":
     case "demon":
       movePlayer(game, playerIndex, card.value);
@@ -154,6 +171,20 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
         `${game.players[playerIndex].name} active ${card.type} ${card.value} : +${card.value}`
       );
       return;
+    case "skeleton": {
+      movePlayer(game, playerIndex, 1);
+      const playerColumn = game.players[playerIndex].columns[columnIndex];
+      const cardBelow = playerColumn[playerColumn.length - 2] || null;
+      const shouldReplay = Boolean(cardBelow && cardBelow.moons > 0);
+
+      game.extraTurn = shouldReplay;
+      game.log.unshift(
+        shouldReplay
+          ? `${game.players[playerIndex].name} active squelette ${card.value} : +1 et rejoue grace a une lune sous la carte`
+          : `${game.players[playerIndex].name} active squelette ${card.value} : +1`
+      );
+      return;
+    }
     case "witch": {
       const playerPosition = game.players[playerIndex].position;
       const handZoneIndex = getZoneIndexFromPosition(playerPosition);
@@ -186,6 +217,30 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       movePlayer(game, playerIndex, copiedValue);
       game.log.unshift(
         `${game.players[playerIndex].name} active vampire ${card.value} : copie ${copiedValue}`
+      );
+      return;
+    }
+    case "zombie": {
+      const zombieCount = countCardsOfTypeOnPlayerBoard(game, playerIndex, "zombie");
+      const moveByZombieCount = {
+        1: 1,
+        2: 2,
+        3: 4,
+        4: 6,
+      };
+
+      if (zombieCount >= 5) {
+        awardStar(game, playerIndex, "5 zombies ou plus sur son plateau");
+        game.log.unshift(
+          `${game.players[playerIndex].name} active zombie ${card.value} : ${zombieCount} zombies -> etoile directe`
+        );
+        return;
+      }
+
+      const move = moveByZombieCount[zombieCount] || 0;
+      movePlayer(game, playerIndex, move);
+      game.log.unshift(
+        `${game.players[playerIndex].name} active zombie ${card.value} : ${zombieCount} zombie(s) -> +${move}`
       );
       return;
     }
@@ -224,6 +279,7 @@ function createInitialState(hostName) {
     winner: null,
     currentPlayer: 0,
     selectedCardIndex: null,
+    extraTurn: false,
     deck: remaining,
     row: drawn,
     players: [playerOne, playerTwo],
@@ -239,6 +295,7 @@ function resetGameState(existingGame) {
   existingGame.winner = null;
   existingGame.currentPlayer = 0;
   existingGame.selectedCardIndex = null;
+  existingGame.extraTurn = false;
   existingGame.deck = remaining;
   existingGame.row = drawn;
   existingGame.updatedAt = Date.now();
@@ -309,6 +366,7 @@ function performAction(game, playerId, action) {
 
     if (game.players[1].name === "En attente") {
       game.phase = "lobby";
+      game.extraTurn = false;
       game.log.unshift("Le reset attend l'arrivee du deuxieme joueur.");
       game.updatedAt = Date.now();
       return;
@@ -338,6 +396,7 @@ function performAction(game, playerId, action) {
 
   const player = game.players[playerIndex];
   const blocked = !canPlayAnyCard(game.row, player.columns);
+  game.extraTurn = false;
 
   if (action.type === "select_card") {
     const card = game.row[action.cardIndex];
@@ -395,7 +454,7 @@ function performAction(game, playerId, action) {
         `${player.name} atteint l'etoile et passe a ${player.stars}/3. Les positions reviennent a 0.`
       );
 
-      if (player.stars >= 3) {
+    if (player.stars >= 3) {
         game.winner = player.name;
         game.selectedCardIndex = null;
         game.updatedAt = Date.now();
@@ -416,7 +475,12 @@ function performAction(game, playerId, action) {
     }
 
     game.selectedCardIndex = null;
-    game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
+    if (game.extraTurn) {
+      game.log.unshift(`${player.name} rejoue immediatement.`);
+      game.extraTurn = false;
+    } else {
+      game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
+    }
     game.updatedAt = Date.now();
     return;
   }
@@ -434,6 +498,7 @@ function performAction(game, playerId, action) {
 
     player.columns[columnIndex] = [];
     game.selectedCardIndex = null;
+    game.extraTurn = false;
     game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
     game.updatedAt = Date.now();
     game.log.unshift(
