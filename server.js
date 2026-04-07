@@ -390,12 +390,15 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       movePlayer(game, playerIndex, 1);
       const playerColumn = game.players[playerIndex].columns[columnIndex];
       const cardBelow = playerColumn[playerColumn.length - 2] || null;
-      const shouldReplay = Boolean(cardBelow && cardBelow.moon);
+      const hasMoonOnBoardCase =
+        playerColumn.length === 1 &&
+        (game.players[playerIndex].columnMoons?.[columnIndex] || 0) > 0;
+      const shouldReplay = Boolean((cardBelow && cardBelow.moon) || hasMoonOnBoardCase);
 
       game.extraTurn = shouldReplay;
       game.log.unshift(
         shouldReplay
-          ? `${game.players[playerIndex].name} active Squelette ${card.value} : +1 et rejoue grace a une lune sous la carte`
+          ? `${game.players[playerIndex].name} active Squelette ${card.value} : +1 et rejoue grace a une lune sous la carte ou sur la case`
           : `${game.players[playerIndex].name} active Squelette ${card.value} : +1`
       );
       return;
