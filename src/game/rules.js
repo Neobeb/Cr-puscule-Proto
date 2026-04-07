@@ -4,6 +4,10 @@ export function getTopValue(column) {
 }
 
 export function canPlaceCardInColumn(card, column) {
+  if (card.type === "slime") {
+    return true;
+  }
+
   return card.value >= getTopValue(column);
 }
 

@@ -1,42 +1,37 @@
 export const CREATURES = {
-  skeleton: {
-    label: "Squelette",
-    color: "#e5e7eb",
-    icon: "💀",
-  },
-  witch: {
+  sorciere: {
     label: "Sorciere",
     color: "#f5d0fe",
     icon: "🧙",
-  },
-  werewolf: {
-    label: "Loup",
-    color: "#d6b48a",
-    icon: "🐺",
-  },
-  slime: {
-    label: "Slime",
-    color: "#93c5fd",
-    icon: "🟦",
   },
   vampire: {
     label: "Vampire",
     color: "#d1d5db",
     icon: "🧛",
   },
+  squelette: {
+    label: "Squelette",
+    color: "#e5e7eb",
+    icon: "💀",
+  },
+  loup: {
+    label: "Loup",
+    color: "#d6b48a",
+    icon: "🐺",
+  },
   zombie: {
     label: "Zombie",
     color: "#93c5fd",
     icon: "🧟",
   },
-  ghost: {
-    label: "Fantome",
-    color: "#bbf7d0",
-    icon: "👻",
+  siamoise: {
+    label: "Siamoise",
+    color: "#fde68a",
+    icon: "🐈",
   },
-  demon: {
-    label: "Demon",
-    color: "#fca5a5",
-    icon: "😈",
+  slime: {
+    label: "Slime",
+    color: "#86efac",
+    icon: "🟩",
   },
 };

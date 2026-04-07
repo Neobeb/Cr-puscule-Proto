@@ -3,18 +3,16 @@ export function countMoonsInOpponentColumn(game, playerIndex, columnIndex) {
   const opponent = game.players[opponentIndex];
   const opponentColumn = opponent.columns[columnIndex] || [];
 
-  let moonCount = 0;
+  let moonCount = opponent.columnMoons?.[columnIndex] || 0;
 
   for (const card of opponentColumn) {
-    moonCount += card.moons || 0;
+    moonCount += card.moon ? 1 : 0;
   }
-
-  moonCount += opponent.columnMoons?.[columnIndex] || 0;
 
   return moonCount;
 }
 
-export function applyWerewolfEffect(game, playerIndex, columnIndex) {
+export function applyLoupEffect(game, playerIndex, columnIndex) {
   const moonCount = countMoonsInOpponentColumn(game, playerIndex, columnIndex);
   const move = moonCount * 2;
 

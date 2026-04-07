@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import CommonRow from "./components/CommonRow";
 import GameBoard from "./components/GameBoard";
 import GameLog from "./components/GameLog";
+import { CREATURES } from "./data/creatures";
 
 const API_BASE = process.env.REACT_APP_API_URL || "";
 
@@ -253,8 +254,12 @@ export default function App() {
   const viewer = viewerIndex >= 0 ? game.players[viewerIndex] : null;
   const viewerCanAct = Boolean(game?.viewerCanAct);
   const activePlayerBlocked = Boolean(game?.activePlayerBlocked);
+  const pendingChoice = game?.pendingChoice || null;
   const selectedCard =
     game && game.selectedCardIndex !== null ? game.row[game.selectedCardIndex] : null;
+  const selectedCardLabel = selectedCard
+    ? CREATURES[selectedCard.type]?.label || selectedCard.type
+    : "";
 
   return (
     <div
@@ -422,6 +427,8 @@ export default function App() {
                       <StatusPill label="Salle en attente" tone="warn" />
                     ) : game.winner ? (
                       <StatusPill label={`Victoire : ${game.winner}`} tone="good" />
+                    ) : pendingChoice ? (
+                      <StatusPill label="Choix en attente" tone="warn" />
                     ) : viewerCanAct ? (
                       <StatusPill label="A vous de jouer" tone="good" />
                     ) : (
@@ -444,11 +451,38 @@ export default function App() {
 
               {game.phase === "playing" && !game.winner && viewerCanAct ? (
                 <div style={viewerCanActStyle}>
-                  {activePlayerBlocked
+                  {pendingChoice
+                    ? "Choisissez si la Siamoise copie la carte de gauche ou de droite."
+                    : activePlayerBlocked
                     ? "Aucun coup possible : choisissez une colonne a defausser."
                     : selectedCard
-                    ? `Carte selectionnee : ${selectedCard.type} ${selectedCard.value}. Choisissez une colonne.`
+                    ? `Carte selectionnee : ${selectedCardLabel} ${selectedCard.value}. Choisissez une colonne.`
                     : "Selectionnez une carte dans la rangee commune."}
+                </div>
+              ) : null}
+
+              {pendingChoice ? (
+                <div style={choicePanelStyle}>
+                  <div style={{ fontWeight: 800, marginBottom: 10 }}>
+                    Siamoise : choisissez un cote
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {pendingChoice.options.map((option) => (
+                      <button
+                        key={option.direction}
+                        onClick={() =>
+                          sendAction({
+                            type: "choose_siamoise_direction",
+                            direction: option.direction,
+                          })
+                        }
+                        style={choiceButtonStyle}
+                      >
+                        {option.direction === "left" ? "Gauche" : "Droite"} :{" "}
+                        {option.cardLabel} {option.cardValue}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : null}
 
@@ -464,7 +498,12 @@ export default function App() {
                 row={game.row}
                 selectedCardIndex={game.selectedCardIndex}
                 onSelectCard={(cardIndex) => sendAction({ type: "select_card", cardIndex })}
-                disabled={!viewerCanAct || activePlayerBlocked || game.phase !== "playing"}
+                disabled={
+                  !viewerCanAct ||
+                  activePlayerBlocked ||
+                  game.phase !== "playing" ||
+                  Boolean(pendingChoice)
+                }
               />
             </Panel>
 
@@ -474,7 +513,7 @@ export default function App() {
                 currentPlayer={game.currentPlayer}
                 activePlayerBlocked={activePlayerBlocked}
                 winner={game.winner}
-                canInteract={viewerCanAct && game.phase === "playing"}
+                canInteract={viewerCanAct && game.phase === "playing" && !pendingChoice}
                 onColumnClick={(columnIndex) =>
                   sendAction({
                     type: activePlayerBlocked ? "discard_column" : "play_column",
@@ -582,5 +621,23 @@ const waitingBannerStyle = {
   borderRadius: 14,
   background: "#eff6ff",
   color: "#1d4ed8",
+  fontWeight: 700,
+};
+
+const choicePanelStyle = {
+  marginTop: 16,
+  padding: 14,
+  borderRadius: 14,
+  background: "#fff7ed",
+  color: "#9a3412",
+  border: "1px solid #fdba74",
+};
+
+const choiceButtonStyle = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  border: "1px solid #fdba74",
+  background: "white",
+  cursor: "pointer",
   fontWeight: 700,
 };

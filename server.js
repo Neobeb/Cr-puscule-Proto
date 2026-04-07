@@ -6,26 +6,67 @@ const crypto = require("crypto");
 const PORT = Number(process.env.PORT || 3001);
 const BUILD_DIR = path.join(__dirname, "build");
 
-const CREATURE_TYPES = [
-  "skeleton",
-  "witch",
-  "werewolf",
-  "slime",
-  "vampire",
-  "zombie",
-  "ghost",
-  "demon",
-];
+const TYPE_LABELS = {
+  sorciere: "Sorciere",
+  vampire: "Vampire",
+  squelette: "Squelette",
+  loup: "Loup",
+  zombie: "Zombie",
+  siamoise: "Siamoise",
+  slime: "Slime",
+};
 
-const VALUES = [0, 1, 2, 3, 4, 5, 6];
-
-const cards = CREATURE_TYPES.flatMap((type) =>
-  VALUES.map((value) => ({
-    id: `${type}-${value}`,
-    type,
+const cards = [
+  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
+    id: `sorciere-${value}`,
+    type: "sorciere",
     value,
-  }))
-);
+    moon: value === 1,
+    chief: value === 6,
+  })),
+  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
+    id: `vampire-${value}`,
+    type: "vampire",
+    value,
+    moon: value === 4,
+    chief: value === 0 || value === 1,
+  })),
+  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
+    id: `squelette-${value}`,
+    type: "squelette",
+    value,
+    moon: value === 6,
+    chief: value === 0,
+  })),
+  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
+    id: `loup-${value}`,
+    type: "loup",
+    value,
+    moon: value === 5,
+    chief: value === 1 || value === 2,
+  })),
+  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
+    id: `zombie-${value}`,
+    type: "zombie",
+    value,
+    moon: false,
+    chief: value === 4,
+  })),
+  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
+    id: `siamoise-${value}`,
+    type: "siamoise",
+    value,
+    moon: value === 4,
+    chief: value === 5 || value === 6,
+  })),
+  ...[3, 3, 3, 3, 4, 4, 4].map((value, index) => ({
+    id: `slime-${value}-${index}`,
+    type: "slime",
+    value,
+    moon: false,
+    chief: value === 4,
+  })),
+];
 
 const games = new Map();
 
@@ -58,6 +99,10 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function getTypeLabel(type) {
+  return TYPE_LABELS[type] || type;
+}
+
 function createDeck() {
   const deck = clone(cards);
 
@@ -85,6 +130,10 @@ function getTopValue(column) {
 }
 
 function canPlaceCardInColumn(card, column) {
+  if (card.type === "slime") {
+    return true;
+  }
+
   return card.value >= getTopValue(column);
 }
 
@@ -94,20 +143,20 @@ function canPlayAnyCard(row, columns) {
   );
 }
 
+function countMoonsInColumn(column, baseMoons = 0) {
+  return (
+    baseMoons +
+    column.reduce((total, card) => total + (card.moon ? 1 : 0), 0)
+  );
+}
+
 function countMoonsInOpponentColumn(game, playerIndex, columnIndex) {
   const opponentIndex = playerIndex === 0 ? 1 : 0;
   const opponent = game.players[opponentIndex];
-  const opponentColumn = opponent.columns[columnIndex] || [];
-
-  let moonCount = 0;
-
-  for (const card of opponentColumn) {
-    moonCount += card.moons || 0;
-  }
-
-  moonCount += opponent.columnMoons?.[columnIndex] || 0;
-
-  return moonCount;
+  return countMoonsInColumn(
+    opponent.columns[columnIndex] || [],
+    opponent.columnMoons?.[columnIndex] || 0
+  );
 }
 
 function applyWerewolfEffect(game, playerIndex, columnIndex) {
@@ -131,15 +180,11 @@ function countCardsOfTypeOnPlayerBoard(game, playerIndex, type) {
   );
 }
 
-function awardStar(game, playerIndex, reason) {
-  const player = game.players[playerIndex];
-  player.stars += 1;
-  game.log.unshift(`${player.name} gagne une etoile (${player.stars}/3) : ${reason}`);
-
-  if (player.stars >= 3) {
-    game.winner = player.name;
-    game.log.unshift(`${player.name} gagne la partie !`);
-  }
+function countChiefsOnPlayerBoard(game, playerIndex) {
+  return game.players[playerIndex].columns.reduce(
+    (total, column) => total + column.filter((card) => card.chief).length,
+    0
+  );
 }
 
 function getOppositePlayerIndex(playerIndex) {
@@ -161,50 +206,124 @@ function getZoneIndexFromPosition(position) {
   return 3;
 }
 
+function resolveStarGain(game, playerIndex, reason) {
+  const player = game.players[playerIndex];
+  player.stars += 1;
+  game.log.unshift(`${player.name} gagne une etoile (${player.stars}/3) : ${reason}`);
+
+  if (player.stars >= 3) {
+    game.winner = player.name;
+    game.log.unshift(`${player.name} gagne la partie !`);
+    return;
+  }
+
+  game.players[0].position = 0;
+  game.players[1].position = 0;
+
+  const chiefsPlayer0 = countChiefsOnPlayerBoard(game, 0);
+  const chiefsPlayer1 = countChiefsOnPlayerBoard(game, 1);
+
+  game.players[0].position += chiefsPlayer0;
+  game.players[1].position += chiefsPlayer1;
+  game.log.unshift(
+    `Reprise apres etoile : ${game.players[0].name} avance de ${chiefsPlayer0} grace a ses chefs, ${game.players[1].name} avance de ${chiefsPlayer1}.`
+  );
+}
+
+function createSiamoiseOptions(game, playerIndex, columnIndex) {
+  const player = game.players[playerIndex];
+  const column = player.columns[columnIndex];
+  const rowIndex = column.length - 1;
+  const options = [];
+
+  if (columnIndex > 0) {
+    const leftCard = player.columns[columnIndex - 1][rowIndex];
+    if (leftCard) {
+      options.push({
+        direction: "left",
+        columnIndex: columnIndex - 1,
+        cardValue: leftCard.value,
+        cardType: leftCard.type,
+      });
+    }
+  }
+
+  if (columnIndex < player.columns.length - 1) {
+    const rightCard = player.columns[columnIndex + 1][rowIndex];
+    if (rightCard) {
+      options.push({
+        direction: "right",
+        columnIndex: columnIndex + 1,
+        cardValue: rightCard.value,
+        cardType: rightCard.type,
+      });
+    }
+  }
+
+  return options;
+}
+
+function resolveSiamoiseChoice(game, direction) {
+  const pendingChoice = game.pendingChoice;
+
+  if (!pendingChoice || pendingChoice.type !== "siamoise") {
+    throw new Error("Aucun choix siamoise en attente.");
+  }
+
+  const option = pendingChoice.options.find((entry) => entry.direction === direction);
+
+  if (!option) {
+    throw new Error("Direction invalide.");
+  }
+
+  movePlayer(game, pendingChoice.playerIndex, option.cardValue);
+  game.log.unshift(
+    `${game.players[pendingChoice.playerIndex].name} choisit ${direction === "left" ? "gauche" : "droite"} pour sa siamoise : +${option.cardValue} grace a ${getTypeLabel(option.cardType)} ${option.cardValue}.`
+  );
+  game.pendingChoice = null;
+}
+
 function applyCardEffect(game, playerIndex, card, columnIndex) {
   switch (card.type) {
     case "slime":
-    case "ghost":
-    case "demon":
-      movePlayer(game, playerIndex, card.value);
       game.log.unshift(
-        `${game.players[playerIndex].name} active ${card.type} ${card.value} : +${card.value}`
+        `${game.players[playerIndex].name} active Slime ${card.value} : placement libre, pas de deplacement`
       );
       return;
-    case "skeleton": {
+    case "squelette": {
       movePlayer(game, playerIndex, 1);
       const playerColumn = game.players[playerIndex].columns[columnIndex];
       const cardBelow = playerColumn[playerColumn.length - 2] || null;
-      const shouldReplay = Boolean(cardBelow && cardBelow.moons > 0);
+      const shouldReplay = Boolean(cardBelow && cardBelow.moon);
 
       game.extraTurn = shouldReplay;
       game.log.unshift(
         shouldReplay
-          ? `${game.players[playerIndex].name} active squelette ${card.value} : +1 et rejoue grace a une lune sous la carte`
-          : `${game.players[playerIndex].name} active squelette ${card.value} : +1`
+          ? `${game.players[playerIndex].name} active Squelette ${card.value} : +1 et rejoue grace a une lune sous la carte`
+          : `${game.players[playerIndex].name} active Squelette ${card.value} : +1`
       );
       return;
     }
-    case "witch": {
+    case "sorciere": {
       const playerPosition = game.players[playerIndex].position;
       const handZoneIndex = getZoneIndexFromPosition(playerPosition);
 
       if (columnIndex === handZoneIndex) {
         movePlayer(game, playerIndex, 3);
         game.log.unshift(
-          `${game.players[playerIndex].name} active sorciere ${card.value} : jouee dans sa zone -> +3`
+          `${game.players[playerIndex].name} active Sorciere ${card.value} : jouee dans sa zone -> +3`
         );
       } else {
         game.log.unshift(
-          `${game.players[playerIndex].name} active sorciere ${card.value} : hors zone -> pas d'effet`
+          `${game.players[playerIndex].name} active Sorciere ${card.value} : hors zone -> pas d'effet`
         );
       }
       return;
     }
-    case "werewolf": {
+    case "loup": {
       const result = applyWerewolfEffect(game, playerIndex, columnIndex);
       game.log.unshift(
-        `${game.players[playerIndex].name} active loup-garou ${card.value} : ${result.moonCount} lune(s) -> +${result.move}`
+        `${game.players[playerIndex].name} active Loup ${card.value} : ${result.moonCount} lune(s) dans la colonne adverse -> +${result.move}`
       );
       return;
     }
@@ -216,7 +335,7 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
 
       movePlayer(game, playerIndex, copiedValue);
       game.log.unshift(
-        `${game.players[playerIndex].name} active vampire ${card.value} : copie ${copiedValue}`
+        `${game.players[playerIndex].name} active Vampire ${card.value} : copie ${copiedValue} depuis la colonne ${columnIndex + 1} adverse`
       );
       return;
     }
@@ -230,9 +349,9 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       };
 
       if (zombieCount >= 5) {
-        awardStar(game, playerIndex, "5 zombies ou plus sur son plateau");
+        resolveStarGain(game, playerIndex, "5 zombies ou plus sur son plateau");
         game.log.unshift(
-          `${game.players[playerIndex].name} active zombie ${card.value} : ${zombieCount} zombies -> etoile directe`
+          `${game.players[playerIndex].name} active Zombie ${card.value} : ${zombieCount} zombies -> etoile directe`
         );
         return;
       }
@@ -240,7 +359,35 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       const move = moveByZombieCount[zombieCount] || 0;
       movePlayer(game, playerIndex, move);
       game.log.unshift(
-        `${game.players[playerIndex].name} active zombie ${card.value} : ${zombieCount} zombie(s) -> +${move}`
+        `${game.players[playerIndex].name} active Zombie ${card.value} : ${zombieCount} zombie(s) -> +${move}`
+      );
+      return;
+    }
+    case "siamoise": {
+      const options = createSiamoiseOptions(game, playerIndex, columnIndex);
+
+      if (!options.length) {
+        game.log.unshift(
+          `${game.players[playerIndex].name} active Siamoise ${card.value} : aucune carte au meme niveau sur les cotes`
+        );
+        return;
+      }
+
+      if (options.length === 1) {
+        movePlayer(game, playerIndex, options[0].cardValue);
+        game.log.unshift(
+          `${game.players[playerIndex].name} active Siamoise ${card.value} : +${options[0].cardValue} grace a ${getTypeLabel(options[0].cardType)} ${options[0].cardValue}`
+        );
+        return;
+      }
+
+      game.pendingChoice = {
+        type: "siamoise",
+        playerIndex,
+        options,
+      };
+      game.log.unshift(
+        `${game.players[playerIndex].name} doit choisir gauche ou droite pour sa Siamoise ${card.value}.`
       );
       return;
     }
@@ -280,6 +427,8 @@ function createInitialState(hostName) {
     currentPlayer: 0,
     selectedCardIndex: null,
     extraTurn: false,
+    pendingChoice: null,
+    pendingPlay: null,
     deck: remaining,
     row: drawn,
     players: [playerOne, playerTwo],
@@ -296,6 +445,8 @@ function resetGameState(existingGame) {
   existingGame.currentPlayer = 0;
   existingGame.selectedCardIndex = null;
   existingGame.extraTurn = false;
+  existingGame.pendingChoice = null;
+  existingGame.pendingPlay = null;
   existingGame.deck = remaining;
   existingGame.row = drawn;
   existingGame.updatedAt = Date.now();
@@ -313,7 +464,9 @@ function sanitizeGame(game, playerId) {
   const viewerPlayerIndex = game.players.findIndex((player) => player.id === playerId);
   const currentPlayer = game.players[game.currentPlayer];
   const activePlayerBlocked =
-    game.phase === "playing" && !canPlayAnyCard(game.row, currentPlayer.columns);
+    game.phase === "playing" &&
+    !game.pendingChoice &&
+    !canPlayAnyCard(game.row, currentPlayer.columns);
 
   return {
     id: game.id,
@@ -324,6 +477,19 @@ function sanitizeGame(game, playerId) {
     currentPlayer: game.currentPlayer,
     currentPlayerName: currentPlayer.name,
     selectedCardIndex: game.selectedCardIndex,
+    pendingChoice:
+      game.pendingChoice && game.pendingChoice.playerIndex === viewerPlayerIndex
+        ? {
+            type: game.pendingChoice.type,
+            options: game.pendingChoice.options.map((option) => ({
+              direction: option.direction,
+              columnIndex: option.columnIndex,
+              cardValue: option.cardValue,
+              cardType: option.cardType,
+              cardLabel: getTypeLabel(option.cardType),
+            })),
+          }
+        : null,
     deck: game.deck,
     row: game.row,
     players: game.players,
@@ -356,6 +522,39 @@ function getGameEntry(gameId) {
   return games.get(String(gameId || "").toUpperCase()) || null;
 }
 
+function finalizeTurnAfterResolvedPlay(game, playerIndex, wasLeftmostCard) {
+  const player = game.players[playerIndex];
+
+  if (player.position >= 12) {
+    resolveStarGain(game, playerIndex, "atteint la case etoile");
+
+    if (game.winner) {
+      game.selectedCardIndex = null;
+      game.updatedAt = Date.now();
+      return;
+    }
+  }
+
+  if (wasLeftmostCard) {
+    const missingCards = 4 - game.row.length;
+    const { drawn, remaining } = drawCards(game.deck, missingCards);
+    game.row.push(...drawn);
+    game.deck = remaining;
+    game.log.unshift(`Refill : ${drawn.length} carte(s) ajoutee(s) a la rangee.`);
+  }
+
+  game.selectedCardIndex = null;
+
+  if (game.extraTurn) {
+    game.log.unshift(`${player.name} rejoue immediatement.`);
+    game.extraTurn = false;
+  } else {
+    game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
+  }
+
+  game.updatedAt = Date.now();
+}
+
 function performAction(game, playerId, action) {
   if (action.type === "reset_game") {
     const playerExists = game.players.some((player) => player.id === playerId);
@@ -367,6 +566,7 @@ function performAction(game, playerId, action) {
     if (game.players[1].name === "En attente") {
       game.phase = "lobby";
       game.extraTurn = false;
+      game.pendingChoice = null;
       game.log.unshift("Le reset attend l'arrivee du deuxieme joueur.");
       game.updatedAt = Date.now();
       return;
@@ -395,6 +595,23 @@ function performAction(game, playerId, action) {
   }
 
   const player = game.players[playerIndex];
+
+  if (action.type === "choose_siamoise_direction") {
+    if (!game.pendingChoice || game.pendingChoice.playerIndex !== playerIndex) {
+      throw new Error("Aucun choix en attente.");
+    }
+
+    const pendingPlay = game.pendingPlay;
+    resolveSiamoiseChoice(game, action.direction);
+    finalizeTurnAfterResolvedPlay(game, playerIndex, pendingPlay?.wasLeftmostCard);
+    game.pendingPlay = null;
+    return;
+  }
+
+  if (game.pendingChoice) {
+    throw new Error("Un choix est en attente avant de poursuivre.");
+  }
+
   const blocked = !canPlayAnyCard(game.row, player.columns);
   game.extraTurn = false;
 
@@ -443,45 +660,19 @@ function performAction(game, playerId, action) {
     targetColumn.push(card);
     game.row.splice(cardIndex, 1);
     game.log.unshift(
-      `${player.name} joue ${card.type} ${card.value} dans sa colonne ${columnIndex + 1}`
+      `${player.name} joue ${getTypeLabel(card.type)} ${card.value} dans sa colonne ${columnIndex + 1}`
     );
 
     applyCardEffect(game, playerIndex, card, columnIndex);
 
-    if (player.position >= 12) {
-      player.stars += 1;
-      game.log.unshift(
-        `${player.name} atteint l'etoile et passe a ${player.stars}/3. Les positions reviennent a 0.`
-      );
-
-    if (player.stars >= 3) {
-        game.winner = player.name;
-        game.selectedCardIndex = null;
-        game.updatedAt = Date.now();
-        game.log.unshift(`${player.name} gagne la partie !`);
-        return;
-      }
-
-      game.players[0].position = 0;
-      game.players[1].position = 0;
+    if (game.pendingChoice) {
+      game.pendingPlay = { wasLeftmostCard };
+      game.selectedCardIndex = null;
+      game.updatedAt = Date.now();
+      return;
     }
 
-    if (wasLeftmostCard) {
-      const missingCards = 4 - game.row.length;
-      const { drawn, remaining } = drawCards(game.deck, missingCards);
-      game.row.push(...drawn);
-      game.deck = remaining;
-      game.log.unshift(`Refill : ${drawn.length} carte(s) ajoutee(s) a la rangee.`);
-    }
-
-    game.selectedCardIndex = null;
-    if (game.extraTurn) {
-      game.log.unshift(`${player.name} rejoue immediatement.`);
-      game.extraTurn = false;
-    } else {
-      game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
-    }
-    game.updatedAt = Date.now();
+    finalizeTurnAfterResolvedPlay(game, playerIndex, wasLeftmostCard);
     return;
   }
 
@@ -499,6 +690,8 @@ function performAction(game, playerId, action) {
     player.columns[columnIndex] = [];
     game.selectedCardIndex = null;
     game.extraTurn = false;
+    game.pendingChoice = null;
+    game.pendingPlay = null;
     game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
     game.updatedAt = Date.now();
     game.log.unshift(

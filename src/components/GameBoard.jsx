@@ -3,7 +3,9 @@ import Stars from "./Stars";
 
 function renderColumn(player, columnIndex) {
   const column = player.columns[columnIndex];
-  const moonCount = player.columnMoons?.[columnIndex] || 0;
+  const moonCount =
+    (player.columnMoons?.[columnIndex] || 0) +
+    column.reduce((total, card) => total + (card.moon ? 1 : 0), 0);
 
   return (
     <div

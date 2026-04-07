@@ -4,7 +4,7 @@ import { drawCards } from "./rules";
 export function createDeck() {
   const deck = [...cards];
 
-  for (let i = deck.length - 1; i > 0; i--) {
+  for (let i = deck.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
     [deck[i], deck[j]] = [deck[j], deck[i]];
   }
@@ -38,6 +38,7 @@ export function getInitialGame() {
     deck: remaining,
     row: drawn,
     selectedCardIndex: null,
-    log: ["Début de partie"],
+    extraTurn: false,
+    log: ["Debut de partie"],
   };
 }
