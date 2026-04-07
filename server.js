@@ -497,10 +497,12 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
   }
 }
 
-function createPlayer(name) {
+function createPlayer(name, options = {}) {
   return {
     id: crypto.randomUUID(),
     name,
+    isBot: Boolean(options.isBot),
+    botDifficulty: options.botDifficulty ?? null,
     position: 0,
     stars: 0,
     columns: [[], [], [], []],
@@ -508,18 +510,26 @@ function createPlayer(name) {
   };
 }
 
-function createInitialState(hostName) {
+function createInitialState(hostName, options = {}) {
   const deck = createDeck();
   const { drawn, remaining } = drawCards(deck, 4);
   const playerOne = createPlayer(normalizeName(hostName, "Joueur 1"));
   playerOne.columnMoons = [1, 0, 0, 0];
 
-  const playerTwo = createPlayer("En attente");
+  const hasBot = options.mode === "bot";
+  const difficulty = Number(options.botDifficulty ?? 0);
+  const playerTwo = hasBot
+    ? createPlayer(`IA niveau ${difficulty}`, {
+        isBot: true,
+        botDifficulty: difficulty,
+      })
+    : createPlayer("En attente");
   playerTwo.columnMoons = [0, 1, 0, 0];
 
   return {
     id: generateId(6),
-    phase: "lobby",
+    phase: hasBot ? "playing" : "lobby",
+    mode: hasBot ? "bot" : "online",
     createdAt: Date.now(),
     updatedAt: Date.now(),
     winner: null,
@@ -531,7 +541,11 @@ function createInitialState(hostName) {
     deck: remaining,
     row: drawn,
     players: [playerOne, playerTwo],
-    log: ["Partie creee. En attente du deuxieme joueur."],
+    log: [
+      hasBot
+        ? `Partie creee contre ${playerTwo.name}.`
+        : "Partie creee. En attente du deuxieme joueur.",
+    ],
   };
 }
 
@@ -540,6 +554,7 @@ function resetGameState(existingGame) {
   const { drawn, remaining } = drawCards(deck, 4);
 
   existingGame.phase = "playing";
+  existingGame.mode = existingGame.players[1].isBot ? "bot" : "online";
   existingGame.winner = null;
   existingGame.currentPlayer = 0;
   existingGame.selectedCardIndex = null;
@@ -601,6 +616,7 @@ function sanitizeGame(game, playerId) {
 
   return {
     id: game.id,
+    mode: game.mode || "online",
     phase: game.phase,
     createdAt: game.createdAt,
     updatedAt: game.updatedAt,
@@ -621,6 +637,249 @@ function sanitizeGame(game, playerId) {
       !game.winner,
     activePlayerBlocked,
   };
+}
+
+function evaluateGameForBot(game, botIndex) {
+  const opponentIndex = getOppositePlayerIndex(botIndex);
+  const bot = game.players[botIndex];
+  const opponent = game.players[opponentIndex];
+
+  if (game.winner === bot.name) {
+    return 1_000_000;
+  }
+
+  if (game.winner === opponent.name) {
+    return -1_000_000;
+  }
+
+  const botChiefs = countChiefsOnPlayerBoard(game, botIndex);
+  const opponentChiefs = countChiefsOnPlayerBoard(game, opponentIndex);
+  const botZombies = countCardsOfTypeOnPlayerBoard(game, botIndex, "zombie");
+  const opponentZombies = countCardsOfTypeOnPlayerBoard(game, opponentIndex, "zombie");
+  const botMoons = game.players[botIndex].columns.reduce(
+    (total, column, columnIndex) =>
+      total + countMoonsInColumn(column, game.players[botIndex].columnMoons?.[columnIndex] || 0),
+    0
+  );
+  const opponentMoons = game.players[opponentIndex].columns.reduce(
+    (total, column, columnIndex) =>
+      total +
+      countMoonsInColumn(column, game.players[opponentIndex].columnMoons?.[columnIndex] || 0),
+    0
+  );
+
+  return (
+    (bot.stars - opponent.stars) * 100_000 +
+    (bot.position - opponent.position) * 1_000 +
+    (botChiefs - opponentChiefs) * 90 +
+    (botZombies - opponentZombies) * 70 +
+    (botMoons - opponentMoons) * 25 +
+    (game.currentPlayer === botIndex ? 10 : -10)
+  );
+}
+
+function expandPendingChoicesForOutcome(state, playerId, actions) {
+  if (!state.pendingChoice) {
+    return [{ actions, resultingState: state }];
+  }
+
+  if (state.pendingChoice.type === "reflet") {
+    return state.pendingChoice.options.flatMap((option) => {
+      const nextState = clone(state);
+      performAction(nextState, playerId, {
+        type: "choose_reflet_direction",
+        direction: option.direction,
+      });
+      return expandPendingChoicesForOutcome(nextState, playerId, [
+        ...actions,
+        { type: "choose_reflet_direction", direction: option.direction },
+      ]);
+    });
+  }
+
+  if (state.pendingChoice.type === "board_discard") {
+    const skipState = clone(state);
+    performAction(skipState, playerId, {
+      type: "resolve_board_discard",
+      skip: true,
+    });
+    const discardOutcomes = expandPendingChoicesForOutcome(skipState, playerId, [
+      ...actions,
+      { type: "resolve_board_discard", skip: true },
+    ]);
+
+    const targetedOutcomes = state.pendingChoice.options.flatMap((option) => {
+      const nextState = clone(state);
+      performAction(nextState, playerId, {
+        type: "resolve_board_discard",
+        targetPlayerIndex: option.targetPlayerIndex,
+        columnIndex: option.columnIndex,
+      });
+      return expandPendingChoicesForOutcome(nextState, playerId, [
+        ...actions,
+        {
+          type: "resolve_board_discard",
+          targetPlayerIndex: option.targetPlayerIndex,
+          columnIndex: option.columnIndex,
+        },
+      ]);
+    });
+
+    return [...discardOutcomes, ...targetedOutcomes];
+  }
+
+  return [{ actions, resultingState: state }];
+}
+
+function getLegalTurnOutcomes(game, playerIndex) {
+  const playerId = game.players[playerIndex].id;
+  const outcomes = [];
+
+  if (game.pendingChoice) {
+    return expandPendingChoicesForOutcome(clone(game), playerId, []);
+  }
+
+  const player = game.players[playerIndex];
+  const blocked = !canPlayAnyCard(game.row, player.columns);
+
+  if (blocked) {
+    for (let columnIndex = 0; columnIndex < player.columns.length; columnIndex += 1) {
+      const nextState = clone(game);
+      performAction(nextState, playerId, {
+        type: "discard_column",
+        columnIndex,
+      });
+      outcomes.push({
+        actions: [{ type: "discard_column", columnIndex }],
+        resultingState: nextState,
+      });
+    }
+
+    return outcomes;
+  }
+
+  game.row.forEach((card, cardIndex) => {
+    player.columns.forEach((column, columnIndex) => {
+      if (!canPlaceCardInColumn(card, column)) {
+        return;
+      }
+
+      const nextState = clone(game);
+      performAction(nextState, playerId, {
+        type: "select_card",
+        cardIndex,
+      });
+      performAction(nextState, playerId, {
+        type: "play_column",
+        columnIndex,
+      });
+
+      const baseActions = [
+        { type: "select_card", cardIndex },
+        { type: "play_column", columnIndex },
+      ];
+
+      const expanded = expandPendingChoicesForOutcome(nextState, playerId, baseActions);
+      outcomes.push(...expanded);
+    });
+  });
+
+  return outcomes;
+}
+
+function searchBestScore(game, depth, botIndex) {
+  if (depth < 0 || game.winner) {
+    return evaluateGameForBot(game, botIndex);
+  }
+
+  const outcomes = getLegalTurnOutcomes(game, game.currentPlayer);
+
+  if (!outcomes.length) {
+    return evaluateGameForBot(game, botIndex);
+  }
+
+  if (game.currentPlayer === botIndex) {
+    let best = -Infinity;
+
+    for (const outcome of outcomes) {
+      const score =
+        depth === 0
+          ? evaluateGameForBot(outcome.resultingState, botIndex)
+          : searchBestScore(outcome.resultingState, depth - 1, botIndex);
+      best = Math.max(best, score);
+    }
+
+    return best;
+  }
+
+  let worst = Infinity;
+
+  for (const outcome of outcomes) {
+    const score =
+      depth === 0
+        ? evaluateGameForBot(outcome.resultingState, botIndex)
+        : searchBestScore(outcome.resultingState, depth - 1, botIndex);
+    worst = Math.min(worst, score);
+  }
+
+  return worst;
+}
+
+function chooseBotOutcome(game, botIndex, difficulty) {
+  const outcomes = getLegalTurnOutcomes(game, botIndex);
+
+  if (!outcomes.length) {
+    return null;
+  }
+
+  let bestOutcome = outcomes[0];
+  let bestScore = -Infinity;
+
+  for (const outcome of outcomes) {
+    const score =
+      difficulty <= 0
+        ? evaluateGameForBot(outcome.resultingState, botIndex)
+        : searchBestScore(outcome.resultingState, difficulty - 1, botIndex);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestOutcome = outcome;
+    }
+  }
+
+  return { ...bestOutcome, score: bestScore };
+}
+
+function isBotTurn(game) {
+  return (
+    game.phase === "playing" &&
+    !game.winner &&
+    !game.pendingChoice &&
+    Boolean(game.players[game.currentPlayer]?.isBot)
+  );
+}
+
+function processBotTurns(game) {
+  let safety = 0;
+
+  while (isBotTurn(game) && safety < 20) {
+    const botIndex = game.currentPlayer;
+    const bot = game.players[botIndex];
+    const difficulty = Number(bot.botDifficulty ?? 0);
+    const chosen = chooseBotOutcome(clone(game), botIndex, difficulty);
+
+    if (!chosen) {
+      break;
+    }
+
+    game.log.unshift(`${bot.name} analyse le plateau (niveau ${difficulty}).`);
+
+    for (const action of chosen.actions) {
+      performAction(game, bot.id, action);
+    }
+
+    safety += 1;
+  }
 }
 
 function broadcastGame(gameId) {
@@ -912,7 +1171,10 @@ function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/games") {
     readBody(req)
       .then((body) => {
-        const state = createInitialState(body.playerName);
+        const state = createInitialState(body.playerName, {
+          mode: body.mode,
+          botDifficulty: body.botDifficulty,
+        });
         games.set(state.id, { state, clients: new Set() });
         sendJson(res, 201, {
           gameId: state.id,
@@ -948,6 +1210,11 @@ function handleApi(req, res, url) {
   if (req.method === "POST" && mode === "join") {
     readBody(req)
       .then((body) => {
+        if (entry.state.mode === "bot") {
+          sendJson(res, 409, { error: "Cette partie est reservee a une partie contre IA." });
+          return;
+        }
+
         const secondPlayer = entry.state.players[1];
 
         if (secondPlayer.name !== "En attente") {
@@ -977,6 +1244,7 @@ function handleApi(req, res, url) {
     readBody(req)
       .then((body) => {
         performAction(entry.state, body.playerId, body);
+        processBotTurns(entry.state);
         broadcastGame(entry.state.id);
         sendJson(res, 200, {
           ok: true,
