@@ -96,6 +96,22 @@ function Panel({ title, children }) {
   );
 }
 
+const CARD_RULES = [
+  { name: "Sorciere", effect: "Avance de 3 si votre pion est dans la zone de la colonne jouee." },
+  { name: "Vampire", effect: "Copie la valeur de la carte du dessus dans la colonne adverse correspondante." },
+  { name: "Squelette", effect: "Avance de 1 puis rejoue s'il est pose sur une lune ou sur une carte lune." },
+  { name: "Loup", effect: "Avance de 2 par lune presente dans la colonne adverse correspondante." },
+  { name: "Zombie", effect: "Avance selon votre nombre total de zombies. A 5 ou plus, gagne une etoile." },
+  { name: "Reflet", effect: "Copie la valeur de la carte au meme niveau a gauche ou a droite. Si les deux existent, choisissez." },
+  { name: "Slime", effect: "Ne fait pas avancer, mais peut etre joue dans n'importe quelle colonne." },
+];
+
+const BOARD_RULES = [
+  { name: "Case 5", effect: "Vous pouvez defausser la carte du dessus d'une colonne, chez vous ou chez l'adversaire." },
+  { name: "Case 8", effect: "Vous comptez comme ayant un zombie supplementaire tant que votre pion y est." },
+  { name: "Chefs", effect: "Apres une etoile, les deux pions reviennent a 0 puis avancent du nombre de chefs poses de chaque cote." },
+];
+
 export default function App() {
   const initialSession = useMemo(getStoredSession, []);
   const [session, setSession] = useState(initialSession);
@@ -601,6 +617,28 @@ export default function App() {
             <Panel title="Journal de partie">
               <GameLog log={game.log} />
             </Panel>
+
+            <Panel title="Rappel des pouvoirs">
+              <div style={rulesGridStyle}>
+                <div style={rulesCardStyle}>
+                  <div style={rulesTitleStyle}>Cartes</div>
+                  {CARD_RULES.map((rule) => (
+                    <div key={rule.name} style={ruleRowStyle}>
+                      <strong>{rule.name}</strong> : {rule.effect}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={rulesCardStyle}>
+                  <div style={rulesTitleStyle}>Plateau</div>
+                  {BOARD_RULES.map((rule) => (
+                    <div key={rule.name} style={ruleRowStyle}>
+                      <strong>{rule.name}</strong> : {rule.effect}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Panel>
           </div>
         ) : null}
       </div>
@@ -720,4 +758,28 @@ const choiceButtonStyle = {
 const secondaryChoiceButtonStyle = {
   ...choiceButtonStyle,
   border: "1px solid #cbd5e1",
+};
+
+const rulesGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+  gap: 12,
+};
+
+const rulesCardStyle = {
+  background: "#f8fafc",
+  border: "1px solid #cbd5e1",
+  borderRadius: 14,
+  padding: 14,
+};
+
+const rulesTitleStyle = {
+  fontWeight: 800,
+  marginBottom: 10,
+};
+
+const ruleRowStyle = {
+  fontSize: 14,
+  lineHeight: 1.45,
+  marginBottom: 10,
 };
