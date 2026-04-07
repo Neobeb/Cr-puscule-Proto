@@ -1,0 +1,40 @@
+{
+  "name": "react-typescript",
+  "version": "1.0.0",
+  "description": "Prototype multijoueur en ligne pour Crepuscule",
+  "keywords": [
+    "typescript",
+    "react",
+    "starter"
+  ],
+  "main": "src/index.jsx",
+  "dependencies": {
+    "loader-utils": "3.2.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-scripts": "5.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.2.38",
+    "@types/react-dom": "18.2.15",
+    "typescript": "4.4.4"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "start:server": "node server.js",
+    "build": "react-scripts build",
+    "serve": "node server.js",
+    "test": "react-scripts test --env=jsdom",
+    "eject": "react-scripts eject"
+  },
+  "proxy": "http://localhost:3001",
+  "browserslist": [
+    ">0.2%",
+    "not dead",
+    "not ie <= 11",
+    "not op_mini all"
+  ]
+}
