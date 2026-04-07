@@ -452,8 +452,8 @@ export default function App() {
               {game.phase === "playing" && !game.winner && viewerCanAct ? (
                 <div style={viewerCanActStyle}>
                   {pendingChoice
-                    ? pendingChoice.type === "siamoise"
-                      ? "Choisissez si la Siamoise copie la carte de gauche ou de droite."
+                    ? pendingChoice.type === "reflet"
+                      ? "Choisissez si le Reflet copie la carte de gauche ou de droite."
                       : "Case 5 : choisissez une carte du dessus a defausser, ou passez."
                     : activePlayerBlocked
                     ? "Aucun coup possible : choisissez une colonne a defausser."
@@ -463,10 +463,10 @@ export default function App() {
                 </div>
               ) : null}
 
-              {pendingChoice?.type === "siamoise" ? (
+              {pendingChoice?.type === "reflet" ? (
                 <div style={choicePanelStyle}>
                   <div style={{ fontWeight: 800, marginBottom: 10 }}>
-                    Siamoise : choisissez un cote
+                    Reflet : choisissez un cote
                   </div>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                     {pendingChoice.options.map((option) => (
@@ -474,7 +474,7 @@ export default function App() {
                         key={option.direction}
                         onClick={() =>
                           sendAction({
-                            type: "choose_siamoise_direction",
+                            type: "choose_reflet_direction",
                             direction: option.direction,
                           })
                         }
