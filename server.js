@@ -953,6 +953,17 @@ function finalizeTurnAfterResolvedPlay(
   game.updatedAt = Date.now();
 }
 
+function ensureRowAvailable(game) {
+  if (game.row.length > 0 || game.deck.length === 0) {
+    return;
+  }
+
+  const { drawn, remaining } = drawCards(game.deck, Math.min(4, game.deck.length));
+  game.row = drawn;
+  game.deck = remaining;
+  game.log.unshift(`Securite : la rangee etait vide, ${drawn.length} carte(s) ont ete ajoutee(s).`);
+}
+
 function performAction(game, playerId, action) {
   if (action.type === "reset_game") {
     const playerExists = game.players.some((player) => player.id === playerId);
@@ -1273,7 +1284,9 @@ function handleApi(req, res, url) {
     readBody(req)
       .then((body) => {
         performAction(entry.state, body.playerId, body);
+        ensureRowAvailable(entry.state);
         processBotTurns(entry.state);
+        ensureRowAvailable(entry.state);
         broadcastGame(entry.state.id);
         sendJson(res, 200, {
           ok: true,
