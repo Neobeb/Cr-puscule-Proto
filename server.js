@@ -312,10 +312,14 @@ function createDiscardOptions(game) {
   return options;
 }
 
-function maybeTriggerBoardEffect(game, playerIndex, options = {}) {
+function maybeTriggerBoardEffect(game, playerIndex, previousPosition, options = {}) {
   const player = game.players[playerIndex];
 
-  if (player.position === 5 && !options.skipDiscardEffect) {
+  if (
+    player.position === 5 &&
+    previousPosition !== 5 &&
+    !options.skipDiscardEffect
+  ) {
     const options = createDiscardOptions(game);
 
     if (!options.length) {
@@ -337,7 +341,7 @@ function maybeTriggerBoardEffect(game, playerIndex, options = {}) {
     return;
   }
 
-  if (player.position === 8) {
+  if (player.position === 8 && previousPosition !== 8) {
     game.log.unshift(
       `${player.name} est sur la case 8 : il compte comme ayant un zombie supplementaire.`
     );
@@ -900,11 +904,16 @@ function getGameEntry(gameId) {
   return games.get(String(gameId || "").toUpperCase()) || null;
 }
 
-function finalizeTurnAfterResolvedPlay(game, playerIndex, wasLeftmostCard) {
+function finalizeTurnAfterResolvedPlay(
+  game,
+  playerIndex,
+  wasLeftmostCard,
+  previousPosition
+) {
   const player = game.players[playerIndex];
   const pendingPlay = game.pendingPlay || null;
 
-  maybeTriggerBoardEffect(game, playerIndex, {
+  maybeTriggerBoardEffect(game, playerIndex, previousPosition, {
     skipDiscardEffect: Boolean(pendingPlay?.boardDiscardResolved),
   });
 
@@ -985,14 +994,19 @@ function performAction(game, playerId, action) {
 
   const player = game.players[playerIndex];
 
-    if (action.type === "choose_reflet_direction") {
+  if (action.type === "choose_reflet_direction") {
     if (!game.pendingChoice || game.pendingChoice.playerIndex !== playerIndex) {
       throw new Error("Aucun choix en attente.");
     }
 
     const pendingPlay = game.pendingPlay;
-      resolveRefletChoice(game, action.direction);
-    finalizeTurnAfterResolvedPlay(game, playerIndex, pendingPlay?.wasLeftmostCard);
+    resolveRefletChoice(game, action.direction);
+    finalizeTurnAfterResolvedPlay(
+      game,
+      playerIndex,
+      pendingPlay?.wasLeftmostCard,
+      pendingPlay?.previousPosition
+    );
     game.pendingPlay = null;
     return;
   }
@@ -1008,7 +1022,12 @@ function performAction(game, playerId, action) {
       ...(pendingPlay || {}),
       boardDiscardResolved: true,
     };
-    finalizeTurnAfterResolvedPlay(game, playerIndex, pendingPlay?.wasLeftmostCard);
+    finalizeTurnAfterResolvedPlay(
+      game,
+      playerIndex,
+      pendingPlay?.wasLeftmostCard,
+      pendingPlay?.previousPosition
+    );
     game.pendingPlay = null;
     return;
   }
@@ -1061,6 +1080,7 @@ function performAction(game, playerId, action) {
     }
 
     const wasLeftmostCard = cardIndex === 0;
+    const previousPosition = player.position;
 
     targetColumn.push(card);
     game.row.splice(cardIndex, 1);
@@ -1071,13 +1091,22 @@ function performAction(game, playerId, action) {
     applyCardEffect(game, playerIndex, card, columnIndex);
 
     if (game.pendingChoice) {
-      game.pendingPlay = { wasLeftmostCard, boardDiscardResolved: false };
+      game.pendingPlay = {
+        wasLeftmostCard,
+        boardDiscardResolved: false,
+        previousPosition,
+      };
       game.selectedCardIndex = null;
       game.updatedAt = Date.now();
       return;
     }
 
-    finalizeTurnAfterResolvedPlay(game, playerIndex, wasLeftmostCard);
+    finalizeTurnAfterResolvedPlay(
+      game,
+      playerIndex,
+      wasLeftmostCard,
+      previousPosition
+    );
     return;
   }
 
