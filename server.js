@@ -12,7 +12,7 @@ const TYPE_LABELS = {
   squelette: "Squelette",
   loup: "Loup",
   zombie: "Zombie",
-  siamoise: "Siamoise",
+  reflet: "Reflet",
   slime: "Slime",
 };
 
@@ -53,8 +53,8 @@ const cards = [
     chief: value === 4,
   })),
   ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
-    id: `siamoise-${value}`,
-    type: "siamoise",
+    id: `reflet-${value}`,
+    type: "reflet",
     value,
     moon: value === 4,
     chief: value === 5 || value === 6,
@@ -236,7 +236,7 @@ function resolveStarGain(game, playerIndex, reason) {
   );
 }
 
-function createSiamoiseOptions(game, playerIndex, columnIndex) {
+function createRefletOptions(game, playerIndex, columnIndex) {
   const player = game.players[playerIndex];
   const column = player.columns[columnIndex];
   const rowIndex = column.length - 1;
@@ -269,11 +269,11 @@ function createSiamoiseOptions(game, playerIndex, columnIndex) {
   return options;
 }
 
-function resolveSiamoiseChoice(game, direction) {
+function resolveRefletChoice(game, direction) {
   const pendingChoice = game.pendingChoice;
 
-  if (!pendingChoice || pendingChoice.type !== "siamoise") {
-    throw new Error("Aucun choix siamoise en attente.");
+  if (!pendingChoice || pendingChoice.type !== "reflet") {
+    throw new Error("Aucun choix reflet en attente.");
   }
 
   const option = pendingChoice.options.find((entry) => entry.direction === direction);
@@ -284,7 +284,7 @@ function resolveSiamoiseChoice(game, direction) {
 
   movePlayer(game, pendingChoice.playerIndex, option.cardValue);
   game.log.unshift(
-    `${game.players[pendingChoice.playerIndex].name} choisit ${direction === "left" ? "gauche" : "droite"} pour sa siamoise : +${option.cardValue} grace a ${getTypeLabel(option.cardType)} ${option.cardValue}.`
+    `${game.players[pendingChoice.playerIndex].name} choisit ${direction === "left" ? "gauche" : "droite"} pour son reflet : +${option.cardValue} grace a ${getTypeLabel(option.cardType)} ${option.cardValue}.`
   );
   game.pendingChoice = null;
 }
@@ -459,12 +459,12 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       );
       return;
     }
-    case "siamoise": {
-      const options = createSiamoiseOptions(game, playerIndex, columnIndex);
+    case "reflet": {
+      const options = createRefletOptions(game, playerIndex, columnIndex);
 
       if (!options.length) {
         game.log.unshift(
-          `${game.players[playerIndex].name} active Siamoise ${card.value} : aucune carte au meme niveau sur les cotes`
+          `${game.players[playerIndex].name} active Reflet ${card.value} : aucune carte au meme niveau sur les cotes`
         );
         return;
       }
@@ -472,18 +472,18 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       if (options.length === 1) {
         movePlayer(game, playerIndex, options[0].cardValue);
         game.log.unshift(
-          `${game.players[playerIndex].name} active Siamoise ${card.value} : +${options[0].cardValue} grace a ${getTypeLabel(options[0].cardType)} ${options[0].cardValue}`
+          `${game.players[playerIndex].name} active Reflet ${card.value} : +${options[0].cardValue} grace a ${getTypeLabel(options[0].cardType)} ${options[0].cardValue}`
         );
         return;
       }
 
       game.pendingChoice = {
-        type: "siamoise",
+        type: "reflet",
         playerIndex,
         options,
       };
       game.log.unshift(
-        `${game.players[playerIndex].name} doit choisir gauche ou droite pour sa Siamoise ${card.value}.`
+        `${game.players[playerIndex].name} doit choisir gauche ou droite pour son Reflet ${card.value}.`
       );
       return;
     }
@@ -567,7 +567,7 @@ function sanitizeGame(game, playerId) {
   let pendingChoice = null;
 
   if (game.pendingChoice && game.pendingChoice.playerIndex === viewerPlayerIndex) {
-    if (game.pendingChoice.type === "siamoise") {
+    if (game.pendingChoice.type === "reflet") {
       pendingChoice = {
         type: game.pendingChoice.type,
         options: game.pendingChoice.options.map((option) => ({
@@ -723,13 +723,13 @@ function performAction(game, playerId, action) {
 
   const player = game.players[playerIndex];
 
-  if (action.type === "choose_siamoise_direction") {
+    if (action.type === "choose_reflet_direction") {
     if (!game.pendingChoice || game.pendingChoice.playerIndex !== playerIndex) {
       throw new Error("Aucun choix en attente.");
     }
 
     const pendingPlay = game.pendingPlay;
-    resolveSiamoiseChoice(game, action.direction);
+      resolveRefletChoice(game, action.direction);
     finalizeTurnAfterResolvedPlay(game, playerIndex, pendingPlay?.wasLeftmostCard);
     game.pendingPlay = null;
     return;
