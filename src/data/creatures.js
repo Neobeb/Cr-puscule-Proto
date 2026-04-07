@@ -24,10 +24,10 @@ export const CREATURES = {
     color: "#93c5fd",
     icon: "🧟",
   },
-  siamoise: {
-    label: "Siamoise",
+  reflet: {
+    label: "Reflet",
     color: "#fde68a",
-    icon: "🐈",
+    icon: "🪞",
   },
   slime: {
     label: "Slime",

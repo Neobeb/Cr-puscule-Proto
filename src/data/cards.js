@@ -35,8 +35,8 @@ export const cards = [
     chief: value === 4,
   })),
   ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
-    id: `siamoise-${value}`,
-    type: "siamoise",
+    id: `reflet-${value}`,
+    type: "reflet",
     value,
     moon: value === 4,
     chief: value === 5 || value === 6,
