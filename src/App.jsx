@@ -101,6 +101,8 @@ export default function App() {
   const [session, setSession] = useState(initialSession);
   const [game, setGame] = useState(null);
   const [createName, setCreateName] = useState("");
+  const [createMode, setCreateMode] = useState("online");
+  const [botDifficulty, setBotDifficulty] = useState("0");
   const [joinName, setJoinName] = useState("");
   const [joinCode, setJoinCode] = useState(initialSession.gameId || "");
   const [error, setError] = useState("");
@@ -170,7 +172,11 @@ export default function App() {
     try {
       const payload = await apiRequest("/api/games", {
         method: "POST",
-        body: JSON.stringify({ playerName: createName }),
+        body: JSON.stringify({
+          playerName: createName,
+          mode: createMode,
+          botDifficulty: Number(botDifficulty),
+        }),
       });
 
       const nextSession = { gameId: payload.gameId, playerId: payload.playerId };
@@ -178,7 +184,11 @@ export default function App() {
       setGame(payload.game);
       setJoinCode(payload.gameId);
       writeSessionToUrl(nextSession.gameId, nextSession.playerId);
-      setInfo("Partie creee. Envoyez le lien d'invitation a votre testeur.");
+      setInfo(
+        createMode === "bot"
+          ? `Partie creee contre IA niveau ${botDifficulty}.`
+          : "Partie creee. Envoyez le lien d'invitation a votre testeur."
+      );
     } catch (apiError) {
       setError(apiError.message);
     } finally {
@@ -352,8 +362,28 @@ export default function App() {
                 placeholder="Votre nom"
                 style={inputStyle}
               />
+              <select
+                value={createMode}
+                onChange={(event) => setCreateMode(event.target.value)}
+                style={inputStyle}
+              >
+                <option value="online">Partie en ligne a 2 joueurs</option>
+                <option value="bot">Partie contre IA</option>
+              </select>
+              {createMode === "bot" ? (
+                <select
+                  value={botDifficulty}
+                  onChange={(event) => setBotDifficulty(event.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="0">IA niveau 0</option>
+                  <option value="1">IA niveau 1</option>
+                  <option value="2">IA niveau 2</option>
+                  <option value="3">IA niveau 3</option>
+                </select>
+              ) : null}
               <button onClick={createGame} disabled={busy} style={primaryButtonStyle}>
-                Creer la partie
+                {createMode === "bot" ? "Creer une partie contre IA" : "Creer la partie"}
               </button>
             </Panel>
 
@@ -437,8 +467,12 @@ export default function App() {
                   </div>
                 </div>
                 <div style={summaryCardStyle}>
-                  <strong>Invitation</strong>
-                  <div style={inviteTextStyle}>{inviteLink}</div>
+                  <strong>{game.mode === "bot" ? "Mode" : "Invitation"}</strong>
+                  <div style={inviteTextStyle}>
+                    {game.mode === "bot"
+                      ? `Partie contre ${game.players[1]?.name || "IA"}`
+                      : inviteLink}
+                  </div>
                 </div>
               </div>
 
@@ -527,7 +561,9 @@ export default function App() {
 
               {game.phase === "playing" && !game.winner && !viewerCanAct ? (
                 <div style={waitingBannerStyle}>
-                  Attendez l'action de {game.currentPlayerName}.
+                  {game.players[game.currentPlayer]?.isBot
+                    ? `${game.currentPlayerName} reflechit...`
+                    : `Attendez l'action de ${game.currentPlayerName}.`}
                 </div>
               ) : null}
             </Panel>
