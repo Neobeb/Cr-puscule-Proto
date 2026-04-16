@@ -13,7 +13,8 @@ const TYPE_LABELS = {
   loup: "Loup",
   zombie: "Zombie",
   reflet: "Reflet",
-  slime: "Slime",
+  banshee: "Banshee",
+  statue: "Statue",
 };
 
 const cards = [
@@ -24,12 +25,12 @@ const cards = [
     moon: value === 1,
     chief: value === 6,
   })),
-  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
-    id: `vampire-${value}`,
+  ...[4, 4, 5, 5, 5, 6, 6].map((value, index) => ({
+    id: `vampire-${index}`,
     type: "vampire",
     value,
     moon: value === 4,
-    chief: value === 0 || value === 1,
+    chief: false,
   })),
   ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
     id: `squelette-${value}`,
@@ -50,7 +51,7 @@ const cards = [
     type: "zombie",
     value,
     moon: false,
-    chief: value === 4,
+    chief: true,
   })),
   ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
     id: `reflet-${value}`,
@@ -59,12 +60,12 @@ const cards = [
     moon: value === 4,
     chief: value === 5 || value === 6,
   })),
-  ...[3, 3, 3, 3, 4, 4, 4].map((value, index) => ({
-    id: `slime-${value}-${index}`,
-    type: "slime",
+  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
+    id: `banshee-${value}`,
+    type: "banshee",
     value,
     moon: false,
-    chief: value === 4,
+    chief: false,
   })),
 ];
 
@@ -103,6 +104,59 @@ function getTypeLabel(type) {
   return TYPE_LABELS[type] || type;
 }
 
+function createEmptyStats() {
+  return {
+    turnsCompleted: 0,
+    blockedTurns: 0,
+    forcedDiscards: 0,
+    starsBySource: {
+      case12: 0,
+      zombie: 0,
+    },
+    caseEntries: {
+      3: 0,
+      5: 0,
+      8: 0,
+      10: 0,
+    },
+    case5: {
+      prompts: 0,
+      used: 0,
+      skipped: 0,
+    },
+    case8ZombieBoosts: 0,
+    rowRefills: 0,
+    rowReplacements: 0,
+    cardActivations: {},
+    cardMovementTotal: {},
+    replaysGranted: {},
+    winners: [],
+  };
+}
+
+function ensureStats(game) {
+  if (!game.stats) {
+    game.stats = createEmptyStats();
+  }
+
+  return game.stats;
+}
+
+function recordCardActivation(game, type) {
+  const stats = ensureStats(game);
+  stats.cardActivations[type] = (stats.cardActivations[type] || 0) + 1;
+}
+
+function recordCardMovement(game, type, amount) {
+  const stats = ensureStats(game);
+  stats.cardMovementTotal[type] = (stats.cardMovementTotal[type] || 0) + amount;
+}
+
+function recordReplayGranted(game, type, amount = 1) {
+  const stats = ensureStats(game);
+  stats.replaysGranted[type] = (stats.replaysGranted[type] || 0) + amount;
+}
+
 function createDeck() {
   const deck = clone(cards);
 
@@ -116,9 +170,20 @@ function createDeck() {
 
 function drawCards(deck, count) {
   return {
-    drawn: deck.slice(0, count),
+    drawn: deck.slice(0, count).map((card) => ({
+      ...card,
+      faceUp: true,
+    })),
     remaining: deck.slice(count),
   };
+}
+
+function getCardEffectiveValue(card) {
+  if (!card) {
+    return 0;
+  }
+
+  return card.faceUp === false ? 0 : card.value;
 }
 
 function getTopValue(column) {
@@ -126,14 +191,18 @@ function getTopValue(column) {
     return 0;
   }
 
-  return Math.max(...column.map((card) => card.value));
+  for (let index = column.length - 1; index >= 0; index -= 1) {
+    const card = column[index];
+
+    if (card.faceUp !== false) {
+      return getCardEffectiveValue(card);
+    }
+  }
+
+  return 0;
 }
 
 function canPlaceCardInColumn(card, column) {
-  if (card.type === "slime") {
-    return true;
-  }
-
   return card.value >= getTopValue(column);
 }
 
@@ -143,10 +212,17 @@ function canPlayAnyCard(row, columns) {
   );
 }
 
+function canPlaySelectedCardFaceDown(game) {
+  return game.row.length > 0;
+}
+
 function countMoonsInColumn(column, baseMoons = 0) {
   return (
     baseMoons +
-    column.reduce((total, card) => total + (card.moon ? 1 : 0), 0)
+    column.reduce(
+      (total, card) => total + ((card.faceUp === false || card.moon) ? 1 : 0),
+      0
+    )
   );
 }
 
@@ -175,20 +251,26 @@ function movePlayer(game, playerIndex, amount) {
 function countCardsOfTypeOnPlayerBoard(game, playerIndex, type) {
   let total = game.players[playerIndex].columns.reduce(
     (total, column) =>
-      total + column.filter((card) => card.type === type).length,
+      total +
+      column.filter((card) => card.faceUp !== false && card.type === type).length,
     0
   );
-
-  if (type === "zombie" && game.players[playerIndex].position === 8) {
-    total += 1;
-  }
 
   return total;
 }
 
 function countChiefsOnPlayerBoard(game, playerIndex) {
   return game.players[playerIndex].columns.reduce(
-    (total, column) => total + column.filter((card) => card.chief).length,
+    (total, column) =>
+      total + column.filter((card) => card.faceUp !== false && card.chief).length,
+    0
+  );
+}
+
+function countColumnsWithFaceDownCards(game, playerIndex) {
+  return game.players[playerIndex].columns.reduce(
+    (total, column) =>
+      total + (column.some((card) => card.faceUp === false) ? 1 : 0),
     0
   );
 }
@@ -205,6 +287,21 @@ function getTopCard(column) {
   return column[column.length - 1];
 }
 
+function getLastVisibleCardEntry(column) {
+  if (!column || !column.length) {
+    return null;
+  }
+
+  const rowIndex = column.length - 1;
+  const card = column[rowIndex];
+
+  if (card && card.faceUp !== false) {
+    return { card, rowIndex };
+  }
+
+  return null;
+}
+
 function getZoneIndexFromPosition(position) {
   if (position <= 2) return 0;
   if (position <= 5) return 1;
@@ -212,13 +309,21 @@ function getZoneIndexFromPosition(position) {
   return 3;
 }
 
-function resolveStarGain(game, playerIndex, reason) {
+function resolveStarGain(game, playerIndex, reason, source = "case12") {
   const player = game.players[playerIndex];
+  const stats = ensureStats(game);
   player.stars += 1;
+  stats.starsBySource[source] = (stats.starsBySource[source] || 0) + 1;
   game.log.unshift(`${player.name} gagne une etoile (${player.stars}/3) : ${reason}`);
 
   if (player.stars >= 3) {
     game.winner = player.name;
+    stats.winners.push({
+      winner: player.name,
+      playerIndex,
+      chiefs: countChiefsOnPlayerBoard(game, playerIndex),
+      zombies: countCardsOfTypeOnPlayerBoard(game, playerIndex, "zombie"),
+    });
     game.log.unshift(`${player.name} gagne la partie !`);
     return;
   }
@@ -236,6 +341,52 @@ function resolveStarGain(game, playerIndex, reason) {
   );
 }
 
+function resolveDeckExhaustedEndgame(game) {
+  if (game.winner || game.deck.length > 0 || game.row.length > 0) {
+    return false;
+  }
+
+  const [playerA, playerB] = game.players;
+
+  if (playerA.stars > playerB.stars) {
+    game.winner = playerA.name;
+    game.log.unshift(
+      `${playerA.name} gagne la partie : la pioche est vide et il a plus d'etoiles (${playerA.stars} contre ${playerB.stars}).`
+    );
+    return true;
+  }
+
+  if (playerB.stars > playerA.stars) {
+    game.winner = playerB.name;
+    game.log.unshift(
+      `${playerB.name} gagne la partie : la pioche est vide et il a plus d'etoiles (${playerB.stars} contre ${playerA.stars}).`
+    );
+    return true;
+  }
+
+  if (playerA.position > playerB.position) {
+    game.winner = playerA.name;
+    game.log.unshift(
+      `${playerA.name} gagne la partie : egalite aux etoiles, mais il est plus avance (${playerA.position} contre ${playerB.position}).`
+    );
+    return true;
+  }
+
+  if (playerB.position > playerA.position) {
+    game.winner = playerB.name;
+    game.log.unshift(
+      `${playerB.name} gagne la partie : egalite aux etoiles, mais il est plus avance (${playerB.position} contre ${playerA.position}).`
+    );
+    return true;
+  }
+
+  game.winner = "Victoire partagee";
+  game.log.unshift(
+    `Victoire partagee : la pioche est vide, les etoiles sont egales (${playerA.stars}-${playerB.stars}) et les positions aussi (${playerA.position}-${playerB.position}).`
+  );
+  return true;
+}
+
 function createRefletOptions(game, playerIndex, columnIndex) {
   const player = game.players[playerIndex];
   const column = player.columns[columnIndex];
@@ -248,8 +399,9 @@ function createRefletOptions(game, playerIndex, columnIndex) {
       options.push({
         direction: "left",
         columnIndex: columnIndex - 1,
-        cardValue: leftCard.value,
-        cardType: leftCard.type,
+        cardValue: getCardEffectiveValue(leftCard),
+        cardType: leftCard.faceUp !== false ? leftCard.type : null,
+        cardFaceUp: leftCard.faceUp !== false,
       });
     }
   }
@@ -260,8 +412,9 @@ function createRefletOptions(game, playerIndex, columnIndex) {
       options.push({
         direction: "right",
         columnIndex: columnIndex + 1,
-        cardValue: rightCard.value,
-        cardType: rightCard.type,
+        cardValue: getCardEffectiveValue(rightCard),
+        cardType: rightCard.faceUp !== false ? rightCard.type : null,
+        cardFaceUp: rightCard.faceUp !== false,
       });
     }
   }
@@ -283,28 +436,31 @@ function resolveRefletChoice(game, direction) {
   }
 
   movePlayer(game, pendingChoice.playerIndex, option.cardValue);
+  recordCardMovement(game, "reflet", option.cardValue);
   game.log.unshift(
-    `${game.players[pendingChoice.playerIndex].name} choisit ${direction === "left" ? "gauche" : "droite"} pour son reflet : +${option.cardValue} grace a ${getTypeLabel(option.cardType)} ${option.cardValue}.`
+    `${game.players[pendingChoice.playerIndex].name} choisit ${direction === "left" ? "gauche" : "droite"} pour son reflet : +${option.cardValue} grace a ${option.cardFaceUp ? `${getTypeLabel(option.cardType)} ${option.cardValue}` : "une carte retournee sans valeur"}.`
   );
   game.pendingChoice = null;
 }
 
-function createDiscardOptions(game) {
+function createFlipOptions(game) {
   const options = [];
 
   game.players.forEach((player, playerIndex) => {
     player.columns.forEach((column, columnIndex) => {
-      const topCard = getTopCard(column);
+      const visibleEntry = getLastVisibleCardEntry(column);
 
-      if (!topCard) {
+      if (!visibleEntry) {
         return;
       }
 
       options.push({
         targetPlayerIndex: playerIndex,
         columnIndex,
-        cardType: topCard.type,
-        cardValue: topCard.value,
+        rowIndex: visibleEntry.rowIndex,
+        cardType: visibleEntry.card.type,
+        cardValue: getCardEffectiveValue(visibleEntry.card),
+        faceUp: true,
       });
     });
   });
@@ -312,55 +468,190 @@ function createDiscardOptions(game) {
   return options;
 }
 
+function createDiscardColumnOptions(game, ownerPlayerIndex) {
+  const options = [];
+
+  const player = game.players[ownerPlayerIndex];
+
+  player.columns.forEach((column, columnIndex) => {
+    if (!column.length) {
+      return;
+    }
+
+    options.push({
+      targetPlayerIndex: ownerPlayerIndex,
+      columnIndex,
+      moonCount: countMoonsInColumn(column, player.columnMoons?.[columnIndex] || 0),
+      columnSize: column.length,
+    });
+  });
+
+  return options;
+}
+
+function refillCommonRow(game, sourceLabel, options = {}) {
+  const stats = ensureStats(game);
+  const rowWasFull = game.row.length >= 4;
+  const replaceIfFull = Boolean(options.replaceIfFull);
+
+  if (rowWasFull && !replaceIfFull) {
+    return;
+  }
+
+  const cardsToDraw = rowWasFull ? 4 : 4 - game.row.length;
+
+  if (cardsToDraw <= 0 || game.deck.length === 0) {
+    game.log.unshift(`${sourceLabel} : aucune carte disponible pour refaire la rangee.`);
+    return;
+  }
+
+  if (rowWasFull) {
+    game.row = [];
+    stats.rowReplacements += 1;
+  }
+
+  const { drawn, remaining } = drawCards(game.deck, Math.min(cardsToDraw, game.deck.length));
+
+  if (!drawn.length) {
+    game.log.unshift(`${sourceLabel} : aucune carte disponible pour refaire la rangee.`);
+    return;
+  }
+
+  game.row.push(...drawn);
+  game.deck = remaining;
+  stats.rowRefills += 1;
+  game.log.unshift(
+    rowWasFull
+      ? `${sourceLabel} : la rangee pleine est defaussee puis ${drawn.length} carte(s) sont revelee(s).`
+      : `${sourceLabel} : ${drawn.length} carte(s) ajoutee(s) a la rangee.`
+  );
+}
+
 function maybeTriggerBoardEffect(game, playerIndex, previousPosition, options = {}) {
   const player = game.players[playerIndex];
+  const skippedCase = options.skipBoardCase ?? null;
+
+  if (player.position === 3 && previousPosition !== 3) {
+    ensureStats(game).caseEntries[3] += 1;
+    refillCommonRow(game, `${player.name} atteint la case 3`, { replaceIfFull: true });
+  }
 
   if (
     player.position === 5 &&
     previousPosition !== 5 &&
-    !options.skipDiscardEffect
+    skippedCase !== 5
   ) {
-    const options = createDiscardOptions(game);
+    ensureStats(game).caseEntries[5] += 1;
+    const flipOptions = createFlipOptions(game);
 
-    if (!options.length) {
+    if (!flipOptions.length) {
       game.log.unshift(
-        `${player.name} atteint la case 5, mais aucune carte n'est disponible a defausser.`
+        `${player.name} atteint la case 5, mais aucune carte n'est disponible a retourner.`
       );
       return;
     }
 
     game.pendingChoice = {
-      type: "board_discard",
+      type: "board_flip",
       playerIndex,
       optional: true,
-      options,
+      sourceCase: 5,
+      options: flipOptions,
     };
+    ensureStats(game).case5.prompts += 1;
     game.log.unshift(
-      `${player.name} atteint la case 5 et peut defausser la carte du dessus d'une colonne.`
+      `${player.name} atteint la case 5 et peut retourner une carte, chez lui ou chez l'adversaire.`
     );
     return;
   }
 
-  if (player.position === 8 && previousPosition !== 8) {
+  if (player.position === 8 && previousPosition !== 8 && skippedCase !== 8) {
+    ensureStats(game).caseEntries[8] += 1;
+    const flipOptions = createFlipOptions(game);
+
+    if (!flipOptions.length) {
+      game.log.unshift(
+        `${player.name} atteint la case 8, mais aucune carte n'est disponible a retourner.`
+      );
+      return;
+    }
+
+    game.pendingChoice = {
+      type: "board_flip",
+      playerIndex,
+      optional: true,
+      sourceCase: 8,
+      options: flipOptions,
+    };
     game.log.unshift(
-      `${player.name} est sur la case 8 : il compte comme ayant un zombie supplementaire.`
+      `${player.name} atteint la case 8 et peut retourner une carte, chez lui ou chez l'adversaire.`
     );
+    return;
+  }
+
+  if (player.position === 10 && previousPosition !== 10) {
+    ensureStats(game).caseEntries[10] += 1;
+    refillCommonRow(game, `${player.name} atteint la case 10`, { replaceIfFull: true });
   }
 }
 
-function resolveBoardDiscardChoice(game, action) {
+function resolveBoardFlipChoice(game, action) {
   const pendingChoice = game.pendingChoice;
 
-  if (!pendingChoice || pendingChoice.type !== "board_discard") {
-    throw new Error("Aucune defausse de plateau en attente.");
+  if (!pendingChoice || pendingChoice.type !== "board_flip") {
+    throw new Error("Aucun retournement de plateau en attente.");
   }
 
   if (action.skip) {
+    if (pendingChoice.sourceCase === 5) {
+      ensureStats(game).case5.skipped += 1;
+    }
     game.log.unshift(
-      `${game.players[pendingChoice.playerIndex].name} choisit de ne pas utiliser la defausse de la case 5.`
+      `${game.players[pendingChoice.playerIndex].name} choisit de ne pas retourner de carte sur la case ${pendingChoice.sourceCase}.`
     );
     game.pendingChoice = null;
     return;
+  }
+
+  const option = pendingChoice.options.find(
+    (entry) =>
+      entry.targetPlayerIndex === action.targetPlayerIndex &&
+      entry.columnIndex === action.columnIndex &&
+      entry.rowIndex === action.rowIndex
+  );
+
+  if (!option) {
+    throw new Error("Cible de retournement invalide.");
+  }
+
+  const targetCard =
+    game.players[action.targetPlayerIndex].columns[action.columnIndex]?.[action.rowIndex];
+
+  if (!targetCard) {
+    throw new Error("Carte introuvable.");
+  }
+
+  if (targetCard.faceUp === false) {
+    throw new Error("Une carte retournee ne peut pas etre remise sur son recto.");
+  }
+
+  targetCard.faceUp = false;
+
+  if (pendingChoice.sourceCase === 5) {
+    ensureStats(game).case5.used += 1;
+  }
+
+  game.log.unshift(
+    `${game.players[pendingChoice.playerIndex].name} retourne la carte de rang ${action.rowIndex + 1} dans la colonne ${action.columnIndex + 1} de ${game.players[action.targetPlayerIndex].name}.`
+  );
+  game.pendingChoice = null;
+}
+
+function resolveBansheeDiscardChoice(game, action) {
+  const pendingChoice = game.pendingChoice;
+
+  if (!pendingChoice || pendingChoice.type !== "banshee_discard") {
+    throw new Error("Aucun choix Banshee en attente.");
   }
 
   const option = pendingChoice.options.find(
@@ -373,33 +664,57 @@ function resolveBoardDiscardChoice(game, action) {
     throw new Error("Cible de defausse invalide.");
   }
 
-  const targetColumn =
-    game.players[action.targetPlayerIndex].columns[action.columnIndex];
-  const discarded = targetColumn.pop();
+  const targetPlayer = game.players[action.targetPlayerIndex];
+  const targetColumn = targetPlayer.columns[action.columnIndex];
 
+  if (!targetColumn || !targetColumn.length) {
+    throw new Error("Colonne introuvable.");
+  }
+
+  targetPlayer.columns[action.columnIndex] = [];
+  movePlayer(game, pendingChoice.playerIndex, option.moonCount);
+  recordCardActivation(game, "banshee");
+  recordCardMovement(game, "banshee", option.moonCount);
   game.log.unshift(
-    `${game.players[pendingChoice.playerIndex].name} defausse ${getTypeLabel(discarded.type)} ${discarded.value} en haut de la colonne ${action.columnIndex + 1} de ${game.players[action.targetPlayerIndex].name}.`
+    `${game.players[pendingChoice.playerIndex].name} active Banshee ${pendingChoice.cardValue} : defausse la colonne ${action.columnIndex + 1} de ${targetPlayer.name} puis +${option.moonCount}`
   );
   game.pendingChoice = null;
 }
 
 function applyCardEffect(game, playerIndex, card, columnIndex) {
+  if (card.faceUp === false) {
+    recordCardActivation(game, "carte_cachee");
+    movePlayer(game, playerIndex, 1);
+    recordCardMovement(game, "carte_cachee", 1);
+    game.log.unshift(
+      `${game.players[playerIndex].name} joue une carte cachee sans valeur ni effet : +1`
+    );
+    return;
+  }
+
   switch (card.type) {
     case "slime":
+      recordCardActivation(game, "slime");
       game.log.unshift(
         `${game.players[playerIndex].name} active Slime ${card.value} : placement libre, pas de deplacement`
       );
       return;
     case "squelette": {
+      recordCardActivation(game, "squelette");
       movePlayer(game, playerIndex, 1);
+      recordCardMovement(game, "squelette", 1);
       const playerColumn = game.players[playerIndex].columns[columnIndex];
       const cardBelow = playerColumn[playerColumn.length - 2] || null;
       const hasMoonOnBoardCase =
-        playerColumn.length === 1 &&
         (game.players[playerIndex].columnMoons?.[columnIndex] || 0) > 0;
-      const shouldReplay = Boolean((cardBelow && cardBelow.moon) || hasMoonOnBoardCase);
+      const shouldReplay = Boolean(
+        (cardBelow && (cardBelow.faceUp === false || cardBelow.moon)) || hasMoonOnBoardCase
+      );
 
       game.extraTurn = shouldReplay;
+      if (shouldReplay) {
+        recordReplayGranted(game, "squelette");
+      }
       game.log.unshift(
         shouldReplay
           ? `${game.players[playerIndex].name} active Squelette ${card.value} : +1 et rejoue grace a une lune sous la carte ou sur la case`
@@ -408,11 +723,13 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       return;
     }
     case "sorciere": {
+      recordCardActivation(game, "sorciere");
       const playerPosition = game.players[playerIndex].position;
       const handZoneIndex = getZoneIndexFromPosition(playerPosition);
 
       if (columnIndex === handZoneIndex) {
         movePlayer(game, playerIndex, 3);
+        recordCardMovement(game, "sorciere", 3);
         game.log.unshift(
           `${game.players[playerIndex].name} active Sorciere ${card.value} : jouee dans sa zone -> +3`
         );
@@ -424,25 +741,30 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       return;
     }
     case "loup": {
+      recordCardActivation(game, "loup");
       const result = applyWerewolfEffect(game, playerIndex, columnIndex);
+      recordCardMovement(game, "loup", result.move);
       game.log.unshift(
         `${game.players[playerIndex].name} active Loup ${card.value} : ${result.moonCount} lune(s) dans la colonne adverse -> +${result.move}`
       );
       return;
     }
     case "vampire": {
+      recordCardActivation(game, "vampire");
       const oppositePlayerIndex = getOppositePlayerIndex(playerIndex);
       const oppositeColumn = game.players[oppositePlayerIndex].columns[columnIndex];
       const oppositeTopCard = getTopCard(oppositeColumn);
-      const copiedValue = oppositeTopCard ? oppositeTopCard.value : 0;
+      const copiedValue = getCardEffectiveValue(oppositeTopCard);
 
       movePlayer(game, playerIndex, copiedValue);
+      recordCardMovement(game, "vampire", copiedValue);
       game.log.unshift(
         `${game.players[playerIndex].name} active Vampire ${card.value} : copie ${copiedValue} depuis la colonne ${columnIndex + 1} adverse`
       );
       return;
     }
     case "zombie": {
+      recordCardActivation(game, "zombie");
       const zombieCount = countCardsOfTypeOnPlayerBoard(game, playerIndex, "zombie");
       const moveByZombieCount = {
         1: 1,
@@ -452,7 +774,7 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       };
 
       if (zombieCount >= 5) {
-        resolveStarGain(game, playerIndex, "5 zombies ou plus sur son plateau");
+        resolveStarGain(game, playerIndex, "5 zombies ou plus sur son plateau", "zombie");
         game.log.unshift(
           `${game.players[playerIndex].name} active Zombie ${card.value} : ${zombieCount} zombies -> etoile directe`
         );
@@ -461,12 +783,14 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
 
       const move = moveByZombieCount[zombieCount] || 0;
       movePlayer(game, playerIndex, move);
+      recordCardMovement(game, "zombie", move);
       game.log.unshift(
         `${game.players[playerIndex].name} active Zombie ${card.value} : ${zombieCount} zombie(s) -> +${move}`
       );
       return;
     }
     case "reflet": {
+      recordCardActivation(game, "reflet");
       const options = createRefletOptions(game, playerIndex, columnIndex);
 
       if (!options.length) {
@@ -478,8 +802,9 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
 
       if (options.length === 1) {
         movePlayer(game, playerIndex, options[0].cardValue);
+        recordCardMovement(game, "reflet", options[0].cardValue);
         game.log.unshift(
-          `${game.players[playerIndex].name} active Reflet ${card.value} : +${options[0].cardValue} grace a ${getTypeLabel(options[0].cardType)} ${options[0].cardValue}`
+          `${game.players[playerIndex].name} active Reflet ${card.value} : +${options[0].cardValue} grace a ${options[0].cardFaceUp ? `${getTypeLabel(options[0].cardType)} ${options[0].cardValue}` : "une carte retournee sans valeur"}`
         );
         return;
       }
@@ -494,6 +819,30 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       );
       return;
     }
+    case "banshee": {
+      const discardOptions = createDiscardColumnOptions(game, playerIndex);
+
+      if (!discardOptions.length) {
+        recordCardActivation(game, "banshee");
+        game.log.unshift(
+          `${game.players[playerIndex].name} active Banshee ${card.value} : aucune colonne a defausser`
+        );
+        return;
+      }
+
+      game.pendingChoice = {
+        type: "banshee_discard",
+        playerIndex,
+        optional: false,
+        label: "Banshee",
+        cardValue: card.value,
+        options: discardOptions,
+      };
+      game.log.unshift(
+        `${game.players[playerIndex].name} doit choisir une colonne a defausser pour sa Banshee ${card.value}.`
+      );
+      return;
+    }
     default:
       game.log.unshift(
         `${game.players[playerIndex].name} joue ${card.type} ${card.value} : effet introuvable`
@@ -502,6 +851,8 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
 }
 
 function createPlayer(name, options = {}) {
+  const columns = createStartingColumns();
+
   return {
     id: crypto.randomUUID(),
     name,
@@ -509,26 +860,47 @@ function createPlayer(name, options = {}) {
     botDifficulty: options.botDifficulty ?? null,
     position: 0,
     stars: 0,
-    columns: [[], [], [], []],
+    columns,
     columnMoons: [0, 0, 0, 0],
   };
+}
+
+function createStartingColumns() {
+  const columns = [[], [], [], []];
+  columns[1].push({
+    id: `statue-${crypto.randomUUID()}`,
+    type: "statue",
+    value: 2,
+    moon: true,
+    chief: false,
+    faceUp: true,
+  });
+  columns[3].push({
+    id: `hidden-start-${crypto.randomUUID()}`,
+    type: "hidden",
+    value: null,
+    moon: true,
+    chief: false,
+    faceUp: false,
+    hiddenToken: true,
+  });
+
+  return columns;
 }
 
 function createInitialState(hostName, options = {}) {
   const deck = createDeck();
   const { drawn, remaining } = drawCards(deck, 4);
   const playerOne = createPlayer(normalizeName(hostName, "Joueur 1"));
-  playerOne.columnMoons = [1, 0, 0, 0];
 
   const hasBot = options.mode === "bot";
   const difficulty = Number(options.botDifficulty ?? 0);
   const playerTwo = hasBot
-    ? createPlayer(`IA niveau ${difficulty}`, {
+    ? createPlayer("IA", {
         isBot: true,
         botDifficulty: difficulty,
       })
     : createPlayer("En attente");
-  playerTwo.columnMoons = [0, 1, 0, 0];
 
   return {
     id: generateId(6),
@@ -569,13 +941,35 @@ function resetGameState(existingGame) {
   existingGame.row = drawn;
   existingGame.updatedAt = Date.now();
   existingGame.log = ["Nouvelle partie."];
+  existingGame.stats = createEmptyStats();
 
   existingGame.players.forEach((player, index) => {
     player.position = 0;
     player.stars = 0;
-    player.columns = [[], [], [], []];
-    player.columnMoons = index === 0 ? [1, 0, 0, 0] : [0, 1, 0, 0];
+    player.columns = createStartingColumns();
+    player.columnMoons = [0, 0, 0, 0];
   });
+}
+
+function createBotVsBotState(difficultyA = 0, difficultyB = 0) {
+  const game = createInitialState("IA A", {
+    mode: "bot",
+    botDifficulty: difficultyB,
+  });
+
+  game.players[0] = createPlayer("IA A", {
+    isBot: true,
+    botDifficulty: difficultyA,
+  });
+  game.players[1].name = "IA B";
+  game.players[1].isBot = true;
+  game.players[1].botDifficulty = difficultyB;
+  game.phase = "playing";
+  game.mode = "bot";
+  game.stats = createEmptyStats();
+  game.log = ["Partie creee IA vs IA."];
+
+  return game;
 }
 
 function sanitizeGame(game, playerId) {
@@ -584,7 +978,8 @@ function sanitizeGame(game, playerId) {
   const activePlayerBlocked =
     game.phase === "playing" &&
     !game.pendingChoice &&
-    !canPlayAnyCard(game.row, currentPlayer.columns);
+    !canPlayAnyCard(game.row, currentPlayer.columns) &&
+    !canPlaySelectedCardFaceDown(game);
 
   let pendingChoice = null;
 
@@ -602,21 +997,56 @@ function sanitizeGame(game, playerId) {
       };
     }
 
-    if (game.pendingChoice.type === "board_discard") {
+    if (game.pendingChoice.type === "board_flip") {
       pendingChoice = {
         type: game.pendingChoice.type,
         optional: true,
+        sourceCase: game.pendingChoice.sourceCase,
+        label: game.pendingChoice.label || `Case ${game.pendingChoice.sourceCase}`,
         options: game.pendingChoice.options.map((option) => ({
           targetPlayerIndex: option.targetPlayerIndex,
           targetPlayerName: game.players[option.targetPlayerIndex].name,
           columnIndex: option.columnIndex,
+          rowIndex: option.rowIndex,
           cardValue: option.cardValue,
           cardType: option.cardType,
-          cardLabel: getTypeLabel(option.cardType),
+          cardFaceUp: option.faceUp,
+          cardLabel: option.faceUp ? getTypeLabel(option.cardType) : "Carte retournee",
+        })),
+      };
+    }
+
+    if (game.pendingChoice.type === "banshee_discard") {
+      pendingChoice = {
+        type: game.pendingChoice.type,
+        optional: false,
+        label: "Banshee",
+        options: game.pendingChoice.options.map((option) => ({
+          targetPlayerIndex: option.targetPlayerIndex,
+          targetPlayerName: game.players[option.targetPlayerIndex].name,
+          columnIndex: option.columnIndex,
+          moonCount: option.moonCount,
+          columnSize: option.columnSize,
         })),
       };
     }
   }
+
+  const visiblePlayers = game.players.map((player) => ({
+    ...player,
+    columns: player.columns.map((column) =>
+      column.map((card) =>
+        card.faceUp === false
+          ? {
+              id: card.id,
+              value: 0,
+              faceUp: false,
+              moon: true,
+            }
+          : card
+      )
+    ),
+  }));
 
   return {
     id: game.id,
@@ -629,9 +1059,9 @@ function sanitizeGame(game, playerId) {
     currentPlayerName: currentPlayer.name,
     selectedCardIndex: game.selectedCardIndex,
     pendingChoice,
-    deck: game.deck,
+    deckCount: game.deck.length,
     row: game.row,
-    players: game.players,
+    players: visiblePlayers,
     log: game.log,
     viewerPlayerIndex,
     viewerCanAct:
@@ -683,6 +1113,16 @@ function evaluateGameForBot(game, botIndex) {
 }
 
 function expandPendingChoicesForOutcome(state, playerId, actions) {
+  if (state.winner) {
+    return [{ actions, resultingState: state }];
+  }
+
+  resolveDeckExhaustedEndgame(state);
+
+  if (state.winner) {
+    return [{ actions, resultingState: state }];
+  }
+
   if (!state.pendingChoice) {
     return [{ actions, resultingState: state }];
   }
@@ -701,35 +1141,56 @@ function expandPendingChoicesForOutcome(state, playerId, actions) {
     });
   }
 
-  if (state.pendingChoice.type === "board_discard") {
+  if (state.pendingChoice.type === "board_flip") {
     const skipState = clone(state);
     performAction(skipState, playerId, {
-      type: "resolve_board_discard",
+      type: "resolve_board_flip",
       skip: true,
     });
     const discardOutcomes = expandPendingChoicesForOutcome(skipState, playerId, [
       ...actions,
-      { type: "resolve_board_discard", skip: true },
+      { type: "resolve_board_flip", skip: true },
     ]);
 
     const targetedOutcomes = state.pendingChoice.options.flatMap((option) => {
       const nextState = clone(state);
       performAction(nextState, playerId, {
-        type: "resolve_board_discard",
+        type: "resolve_board_flip",
+        targetPlayerIndex: option.targetPlayerIndex,
+        columnIndex: option.columnIndex,
+        rowIndex: option.rowIndex,
+      });
+      return expandPendingChoicesForOutcome(nextState, playerId, [
+        ...actions,
+        {
+          type: "resolve_board_flip",
+          targetPlayerIndex: option.targetPlayerIndex,
+          columnIndex: option.columnIndex,
+          rowIndex: option.rowIndex,
+        },
+      ]);
+    });
+
+    return [...discardOutcomes, ...targetedOutcomes];
+  }
+
+  if (state.pendingChoice.type === "banshee_discard") {
+    return state.pendingChoice.options.flatMap((option) => {
+      const nextState = clone(state);
+      performAction(nextState, playerId, {
+        type: "resolve_banshee_discard",
         targetPlayerIndex: option.targetPlayerIndex,
         columnIndex: option.columnIndex,
       });
       return expandPendingChoicesForOutcome(nextState, playerId, [
         ...actions,
         {
-          type: "resolve_board_discard",
+          type: "resolve_banshee_discard",
           targetPlayerIndex: option.targetPlayerIndex,
           columnIndex: option.columnIndex,
         },
       ]);
     });
-
-    return [...discardOutcomes, ...targetedOutcomes];
   }
 
   return [{ actions, resultingState: state }];
@@ -743,11 +1204,21 @@ function getLegalTurnOutcomes(game, playerIndex) {
     return expandPendingChoicesForOutcome(clone(game), playerId, []);
   }
 
+  ensureRowAvailable(game);
+
+  if (game.winner) {
+    return outcomes;
+  }
+
   const player = game.players[playerIndex];
-  const blocked = !canPlayAnyCard(game.row, player.columns);
+  const blocked =
+    !canPlayAnyCard(game.row, player.columns) && !canPlaySelectedCardFaceDown(game);
 
   if (blocked) {
     for (let columnIndex = 0; columnIndex < player.columns.length; columnIndex += 1) {
+      if (!player.columns[columnIndex]?.length) {
+        continue;
+      }
       const nextState = clone(game);
       performAction(nextState, playerId, {
         type: "discard_column",
@@ -786,9 +1257,168 @@ function getLegalTurnOutcomes(game, playerIndex) {
       const expanded = expandPendingChoicesForOutcome(nextState, playerId, baseActions);
       outcomes.push(...expanded);
     });
+
+    player.columns.forEach((column, columnIndex) => {
+      const nextState = clone(game);
+      performAction(nextState, playerId, {
+        type: "select_card",
+        cardIndex,
+      });
+      performAction(nextState, playerId, {
+        type: "play_selected_face_down",
+        columnIndex,
+      });
+      outcomes.push({
+        actions: [
+          { type: "select_card", cardIndex },
+          { type: "play_selected_face_down", columnIndex },
+        ],
+        resultingState: nextState,
+      });
+    });
   });
 
   return outcomes;
+}
+
+function getBotProgressScore(game, botIndex) {
+  const bot = game.players[botIndex];
+  return bot.stars * 100 + bot.position;
+}
+
+function evaluateImmediateOpponentResponse(game, botIndex) {
+  if (game.winner || game.currentPlayer === botIndex) {
+    return evaluateGameForBot(game, botIndex);
+  }
+
+  const opponentOutcomes = getLegalTurnOutcomes(game, game.currentPlayer);
+
+  if (!opponentOutcomes.length) {
+    return evaluateGameForBot(game, botIndex);
+  }
+
+  let worstScoreForBot = Infinity;
+
+  for (const outcome of opponentOutcomes) {
+    const score = evaluateGameForBot(outcome.resultingState, botIndex);
+    worstScoreForBot = Math.min(worstScoreForBot, score);
+  }
+
+  return worstScoreForBot;
+}
+
+function scoreOutcomeForBot(outcome, botIndex, difficulty) {
+  if (difficulty <= 0) {
+    const immediateScore = evaluateGameForBot(outcome.resultingState, botIndex);
+    const opponentResponseScore = evaluateImmediateOpponentResponse(
+      outcome.resultingState,
+      botIndex
+    );
+
+    return immediateScore * 0.65 + opponentResponseScore * 0.35;
+  }
+
+  return searchBestScore(outcome.resultingState, difficulty - 1, botIndex);
+}
+
+function chooseBestOutcomeFromList(outcomes, botIndex, difficulty) {
+  if (!outcomes.length) {
+    return null;
+  }
+
+  let bestOutcome = outcomes[0];
+  let bestScore = -Infinity;
+
+  for (const outcome of outcomes) {
+    const score = scoreOutcomeForBot(outcome, botIndex, difficulty);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestOutcome = outcome;
+    }
+  }
+
+  return { ...bestOutcome, score: bestScore };
+}
+
+function chooseBotPendingChoice(game, botIndex) {
+  const bot = game.players[botIndex];
+  const pendingChoice = game.pendingChoice;
+
+  if (!pendingChoice || pendingChoice.playerIndex !== botIndex) {
+    return null;
+  }
+
+  if (pendingChoice.type === "reflet") {
+    const bestOption = [...pendingChoice.options].sort(
+      (a, b) => b.cardValue - a.cardValue
+    )[0];
+
+    return {
+      actions: [
+        { type: "choose_reflet_direction", direction: bestOption.direction },
+      ],
+      score: bestOption.cardValue,
+    };
+  }
+
+  if (pendingChoice.type === "board_flip") {
+    const visibleOpponentOptions = pendingChoice.options
+      .filter(
+        (option) =>
+          option.targetPlayerIndex !== botIndex &&
+          option.faceUp &&
+          option.cardValue > 0
+      )
+      .sort((a, b) => b.cardValue - a.cardValue);
+
+    if (visibleOpponentOptions.length) {
+      const target = visibleOpponentOptions[0];
+      return {
+        actions: [
+          {
+            type: "resolve_board_flip",
+            targetPlayerIndex: target.targetPlayerIndex,
+            columnIndex: target.columnIndex,
+            rowIndex: target.rowIndex,
+          },
+        ],
+        score: target.cardValue,
+      };
+    }
+
+    return {
+      actions: [{ type: "resolve_board_flip", skip: true }],
+      score: 0,
+    };
+  }
+
+  if (pendingChoice.type === "banshee_discard") {
+    const target = [...pendingChoice.options].sort((a, b) => {
+      const scoreA =
+        a.moonCount * 10 +
+        a.columnSize * 2 +
+        (a.targetPlayerIndex !== botIndex ? 5 : 0);
+      const scoreB =
+        b.moonCount * 10 +
+        b.columnSize * 2 +
+        (b.targetPlayerIndex !== botIndex ? 5 : 0);
+      return scoreB - scoreA;
+    })[0];
+
+    return {
+      actions: [
+        {
+          type: "resolve_banshee_discard",
+          targetPlayerIndex: target.targetPlayerIndex,
+          columnIndex: target.columnIndex,
+        },
+      ],
+      score: target.moonCount * 10 + target.columnSize,
+    };
+  }
+
+  return null;
 }
 
 function searchBestScore(game, depth, botIndex) {
@@ -830,35 +1460,48 @@ function searchBestScore(game, depth, botIndex) {
 }
 
 function chooseBotOutcome(game, botIndex, difficulty) {
+  const pendingChoiceResolution = chooseBotPendingChoice(game, botIndex);
+
+  if (pendingChoiceResolution) {
+    return pendingChoiceResolution;
+  }
+
   const outcomes = getLegalTurnOutcomes(game, botIndex);
 
   if (!outcomes.length) {
     return null;
   }
+  const currentProgress = getBotProgressScore(game, botIndex);
+  const visibleOutcomes = outcomes.filter(
+    (outcome) => outcome.actions[0]?.type === "select_card"
+  );
+  const visibleAdvancingOutcomes = visibleOutcomes.filter(
+    (outcome) => getBotProgressScore(outcome.resultingState, botIndex) > currentProgress
+  );
 
-  let bestOutcome = outcomes[0];
-  let bestScore = -Infinity;
-
-  for (const outcome of outcomes) {
-    const score =
-      difficulty <= 0
-        ? evaluateGameForBot(outcome.resultingState, botIndex)
-        : searchBestScore(outcome.resultingState, difficulty - 1, botIndex);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestOutcome = outcome;
-    }
+  if (visibleAdvancingOutcomes.length) {
+    return chooseBestOutcomeFromList(visibleAdvancingOutcomes, botIndex, difficulty);
   }
 
-  return { ...bestOutcome, score: bestScore };
+  const hiddenOutcomes = outcomes.filter(
+    (outcome) => outcome.actions[1]?.type === "play_selected_face_down"
+  );
+
+  if (hiddenOutcomes.length) {
+    return chooseBestOutcomeFromList(hiddenOutcomes, botIndex, difficulty);
+  }
+
+  if (visibleOutcomes.length) {
+    return chooseBestOutcomeFromList(visibleOutcomes, botIndex, difficulty);
+  }
+
+  return chooseBestOutcomeFromList(outcomes, botIndex, difficulty);
 }
 
 function isBotTurn(game) {
   return (
     game.phase === "playing" &&
     !game.winner &&
-    !game.pendingChoice &&
     Boolean(game.players[game.currentPlayer]?.isBot)
   );
 }
@@ -876,10 +1519,20 @@ function processBotTurns(game) {
       break;
     }
 
-    game.log.unshift(`${bot.name} analyse le plateau (niveau ${difficulty}).`);
+    game.log.unshift(`${bot.name} analyse le plateau.`);
 
     for (const action of chosen.actions) {
-      performAction(game, bot.id, action);
+      if (game.winner) {
+        break;
+      }
+      try {
+        performAction(game, bot.id, action);
+      } catch (error) {
+        if (error.message === "La partie est terminee.") {
+          break;
+        }
+        throw error;
+      }
     }
 
     safety += 1;
@@ -908,13 +1561,14 @@ function finalizeTurnAfterResolvedPlay(
   game,
   playerIndex,
   wasLeftmostCard,
-  previousPosition
+  previousPosition,
+  shouldRefillRow = false
 ) {
   const player = game.players[playerIndex];
   const pendingPlay = game.pendingPlay || null;
 
   maybeTriggerBoardEffect(game, playerIndex, previousPosition, {
-    skipDiscardEffect: Boolean(pendingPlay?.boardDiscardResolved),
+    skipBoardCase: pendingPlay?.boardFlipResolvedCase ?? null,
   });
 
   if (game.pendingChoice) {
@@ -933,12 +1587,14 @@ function finalizeTurnAfterResolvedPlay(
     }
   }
 
-  if (wasLeftmostCard) {
-    const missingCards = 4 - game.row.length;
-    const { drawn, remaining } = drawCards(game.deck, missingCards);
-    game.row.push(...drawn);
-    game.deck = remaining;
-    game.log.unshift(`Refill : ${drawn.length} carte(s) ajoutee(s) a la rangee.`);
+  if (wasLeftmostCard || shouldRefillRow) {
+    refillCommonRow(game, "Refill");
+  }
+
+  if (resolveDeckExhaustedEndgame(game)) {
+    game.selectedCardIndex = null;
+    game.updatedAt = Date.now();
+    return;
   }
 
   game.selectedCardIndex = null;
@@ -950,10 +1606,15 @@ function finalizeTurnAfterResolvedPlay(
     game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
   }
 
+  ensureStats(game).turnsCompleted += 1;
   game.updatedAt = Date.now();
 }
 
 function ensureRowAvailable(game) {
+  if (resolveDeckExhaustedEndgame(game)) {
+    return;
+  }
+
   if (game.row.length > 0 || game.deck.length === 0) {
     return;
   }
@@ -989,6 +1650,8 @@ function performAction(game, playerId, action) {
     throw new Error("La partie n'a pas encore commence.");
   }
 
+  resolveDeckExhaustedEndgame(game);
+
   if (game.winner) {
     throw new Error("La partie est terminee.");
   }
@@ -1016,28 +1679,49 @@ function performAction(game, playerId, action) {
       game,
       playerIndex,
       pendingPlay?.wasLeftmostCard,
-      pendingPlay?.previousPosition
+      pendingPlay?.previousPosition,
+      pendingPlay?.shouldRefillRow
     );
     game.pendingPlay = null;
     return;
   }
 
-  if (action.type === "resolve_board_discard") {
+  if (action.type === "resolve_board_flip") {
     if (!game.pendingChoice || game.pendingChoice.playerIndex !== playerIndex) {
       throw new Error("Aucun choix de plateau en attente.");
     }
 
     const pendingPlay = game.pendingPlay;
-    resolveBoardDiscardChoice(game, action);
+    const sourceCase = game.pendingChoice.sourceCase;
+    resolveBoardFlipChoice(game, action);
     game.pendingPlay = {
       ...(pendingPlay || {}),
-      boardDiscardResolved: true,
+      boardFlipResolvedCase: sourceCase,
     };
     finalizeTurnAfterResolvedPlay(
       game,
       playerIndex,
       pendingPlay?.wasLeftmostCard,
-      pendingPlay?.previousPosition
+      pendingPlay?.previousPosition,
+      pendingPlay?.shouldRefillRow
+    );
+    game.pendingPlay = null;
+    return;
+  }
+
+  if (action.type === "resolve_banshee_discard") {
+    if (!game.pendingChoice || game.pendingChoice.playerIndex !== playerIndex) {
+      throw new Error("Aucun choix Banshee en attente.");
+    }
+
+    const pendingPlay = game.pendingPlay;
+    resolveBansheeDiscardChoice(game, action);
+    finalizeTurnAfterResolvedPlay(
+      game,
+      playerIndex,
+      pendingPlay?.wasLeftmostCard,
+      pendingPlay?.previousPosition,
+      pendingPlay?.shouldRefillRow
     );
     game.pendingPlay = null;
     return;
@@ -1047,7 +1731,14 @@ function performAction(game, playerId, action) {
     throw new Error("Un choix est en attente avant de poursuivre.");
   }
 
-  const blocked = !canPlayAnyCard(game.row, player.columns);
+  ensureRowAvailable(game);
+
+  if (game.winner) {
+    throw new Error("La partie est terminee.");
+  }
+
+  const blocked =
+    !canPlayAnyCard(game.row, player.columns) && !canPlaySelectedCardFaceDown(game);
   game.extraTurn = false;
 
   if (action.type === "select_card") {
@@ -1055,10 +1746,6 @@ function performAction(game, playerId, action) {
 
     if (!card) {
       throw new Error("Carte introuvable.");
-    }
-
-    if (blocked) {
-      throw new Error("Aucune carte ne peut etre jouee, il faut defausser une colonne.");
     }
 
     game.selectedCardIndex = action.cardIndex;
@@ -1104,8 +1791,9 @@ function performAction(game, playerId, action) {
     if (game.pendingChoice) {
       game.pendingPlay = {
         wasLeftmostCard,
-        boardDiscardResolved: false,
+        boardFlipResolvedCase: null,
         previousPosition,
+        shouldRefillRow: false,
       };
       game.selectedCardIndex = null;
       game.updatedAt = Date.now();
@@ -1121,6 +1809,56 @@ function performAction(game, playerId, action) {
     return;
   }
 
+  if (action.type === "play_selected_face_down") {
+    if (blocked) {
+      throw new Error("Impossible de jouer une carte cachee, il faut defausser une colonne.");
+    }
+
+    const columnIndex = action.columnIndex;
+    const cardIndex = game.selectedCardIndex;
+    const targetColumn = player.columns[columnIndex];
+    const selectedCard = game.row[cardIndex];
+
+    if (!targetColumn || !selectedCard) {
+      throw new Error("Cible invalide.");
+    }
+
+    const previousPosition = player.position;
+    const wasLeftmostCard = cardIndex === 0;
+    const hiddenCard = {
+      id: `hidden-${crypto.randomUUID()}`,
+      type: "hidden",
+      value: null,
+      moon: true,
+      chief: false,
+      faceUp: false,
+      hiddenToken: true,
+    };
+
+    targetColumn.push(hiddenCard);
+    game.row.splice(cardIndex, 1);
+    game.selectedCardIndex = null;
+    game.log.unshift(
+      `${player.name} joue ${getTypeLabel(selectedCard.type)} ${selectedCard.value} face cachee dans sa colonne ${columnIndex + 1}`
+    );
+
+    applyCardEffect(game, playerIndex, hiddenCard, columnIndex);
+
+    if (game.pendingChoice) {
+      game.pendingPlay = {
+        wasLeftmostCard: false,
+        boardFlipResolvedCase: null,
+        previousPosition,
+        shouldRefillRow: wasLeftmostCard,
+      };
+      game.updatedAt = Date.now();
+      return;
+    }
+
+    finalizeTurnAfterResolvedPlay(game, playerIndex, wasLeftmostCard, previousPosition, false);
+    return;
+  }
+
   if (action.type === "discard_column") {
     const columnIndex = action.columnIndex;
 
@@ -1132,12 +1870,19 @@ function performAction(game, playerId, action) {
       throw new Error("Colonne introuvable.");
     }
 
+    if (player.columns[columnIndex].length === 0) {
+      throw new Error("Impossible de defausser une colonne vide.");
+    }
+
     player.columns[columnIndex] = [];
+    ensureStats(game).blockedTurns += 1;
+    ensureStats(game).forcedDiscards += 1;
     game.selectedCardIndex = null;
     game.extraTurn = false;
     game.pendingChoice = null;
     game.pendingPlay = null;
     game.currentPlayer = game.currentPlayer === 0 ? 1 : 0;
+    ensureStats(game).turnsCompleted += 1;
     game.updatedAt = Date.now();
     game.log.unshift(
       `${player.name} ne peut rien jouer et defausse sa colonne ${columnIndex + 1}.`
@@ -1346,25 +2091,41 @@ function handleStatic(req, res, url) {
   return false;
 }
 
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+function createHttpServer() {
+  return http.createServer((req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
 
-  if (url.pathname.startsWith("/api/")) {
-    if (!handleApi(req, res, url)) {
-      sendJson(res, 404, { error: "Route API introuvable." });
+    if (url.pathname.startsWith("/api/")) {
+      if (!handleApi(req, res, url)) {
+        sendJson(res, 404, { error: "Route API introuvable." });
+      }
+      return;
     }
-    return;
-  }
 
-  if (!handleStatic(req, res, url)) {
-    sendText(
-      res,
-      200,
-      "Serveur Crepuscule actif. Lancez le client React en dev ou servez un build pour l'interface."
-    );
-  }
-});
+    if (!handleStatic(req, res, url)) {
+      sendText(
+        res,
+        200,
+        "Serveur Crepuscule actif. Lancez le client React en dev ou servez un build pour l'interface."
+      );
+    }
+  });
+}
 
-server.listen(PORT, () => {
-  console.log(`Crepuscule server listening on http://localhost:${PORT}`);
-});
+module.exports = {
+  createBotVsBotState,
+  createInitialState,
+  createHttpServer,
+  createEmptyStats,
+  ensureRowAvailable,
+  getLegalTurnOutcomes,
+  performAction,
+  processBotTurns,
+};
+
+if (require.main === module) {
+  const server = createHttpServer();
+  server.listen(PORT, () => {
+    console.log(`Crepuscule server listening on http://localhost:${PORT}`);
+  });
+}
