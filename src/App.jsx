@@ -97,18 +97,22 @@ function Panel({ title, children }) {
 }
 
 const CARD_RULES = [
+  { name: "Face cachee", effect: "Une carte de la rangee peut etre jouee face cachee dans n'importe quelle colonne. Elle n'a aucune valeur, compte comme une lune, et avance de 1." },
+  { name: "Statue", effect: "Chaque joueur commence avec une Statue 2 avec lune dans sa deuxieme colonne." },
   { name: "Sorciere", effect: "Avance de 3 si votre pion est dans la zone de la colonne jouee." },
   { name: "Vampire", effect: "Copie la valeur de la carte du dessus dans la colonne adverse correspondante." },
   { name: "Squelette", effect: "Avance de 1 puis rejoue s'il est pose sur une lune ou sur une carte lune." },
   { name: "Loup", effect: "Avance de 2 par lune presente dans la colonne adverse correspondante." },
-  { name: "Zombie", effect: "Avance selon votre nombre total de zombies. A 5 ou plus, gagne une etoile." },
+  { name: "Zombie", effect: "Avance selon votre nombre total de zombies. Tous les zombies sont des chefs. A 5 ou plus, gagne une etoile." },
   { name: "Reflet", effect: "Copie la valeur de la carte au meme niveau a gauche ou a droite. Si les deux existent, choisissez." },
-  { name: "Slime", effect: "Ne fait pas avancer, mais peut etre joue dans n'importe quelle colonne." },
+  { name: "Banshee", effect: "Defausse une de vos colonnes, puis avance du nombre de lunes dans cette colonne." },
 ];
 
 const BOARD_RULES = [
-  { name: "Case 5", effect: "Vous pouvez defausser la carte du dessus d'une colonne, chez vous ou chez l'adversaire." },
-  { name: "Case 8", effect: "Vous comptez comme ayant un zombie supplementaire tant que votre pion y est." },
+  { name: "Case 3", effect: "Refill de la rangee. Si elle est pleine, elle est defaussee puis remplacee." },
+  { name: "Case 5", effect: "Vous pouvez retourner la derniere carte visible d'une colonne, chez vous ou chez l'adversaire." },
+  { name: "Case 8", effect: "Vous pouvez retourner la derniere carte visible d'une colonne, chez vous ou chez l'adversaire." },
+  { name: "Case 10", effect: "Refill de la rangee. Si elle est pleine, elle est defaussee puis remplacee." },
   { name: "Chefs", effect: "Apres une etoile, les deux pions reviennent a 0 puis avancent du nombre de chefs poses de chaque cote." },
 ];
 
@@ -118,16 +122,22 @@ export default function App() {
   const [game, setGame] = useState(null);
   const [createName, setCreateName] = useState("");
   const [createMode, setCreateMode] = useState("online");
-  const [botDifficulty, setBotDifficulty] = useState("0");
   const [joinName, setJoinName] = useState("");
   const [joinCode, setJoinCode] = useState(initialSession.gameId || "");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [hiddenPlacementMode, setHiddenPlacementMode] = useState(false);
+  const [animationState, setAnimationState] = useState({
+    movedPlayers: [],
+    starBurst: false,
+    victory: false,
+  });
   const [connectionState, setConnectionState] = useState(
     initialSession.gameId && initialSession.playerId ? "connecting" : "idle"
   );
   const eventSourceRef = useRef(null);
+  const previousGameRef = useRef(null);
 
   useEffect(() => {
     if (!session.gameId || !session.playerId) {
@@ -191,7 +201,6 @@ export default function App() {
         body: JSON.stringify({
           playerName: createName,
           mode: createMode,
-          botDifficulty: Number(botDifficulty),
         }),
       });
 
@@ -202,7 +211,7 @@ export default function App() {
       writeSessionToUrl(nextSession.gameId, nextSession.playerId);
       setInfo(
         createMode === "bot"
-          ? `Partie creee contre IA niveau ${botDifficulty}.`
+          ? "Partie creee contre IA."
           : "Partie creee. Envoyez le lien d'invitation a votre testeur."
       );
     } catch (apiError) {
@@ -245,8 +254,10 @@ export default function App() {
         method: "POST",
         body: JSON.stringify({ playerId: session.playerId, ...action }),
       });
+      return true;
     } catch (apiError) {
       setError(apiError.message);
+      return false;
     }
   }
 
@@ -287,6 +298,53 @@ export default function App() {
     ? CREATURES[selectedCard.type]?.label || selectedCard.type
     : "";
 
+  useEffect(() => {
+    if (!viewerCanAct || pendingChoice || activePlayerBlocked || !selectedCard) {
+      setHiddenPlacementMode(false);
+    }
+  }, [viewerCanAct, pendingChoice, activePlayerBlocked, selectedCard]);
+
+  useEffect(() => {
+    if (!game || !previousGameRef.current) {
+      previousGameRef.current = game;
+      return;
+    }
+
+    const previousGame = previousGameRef.current;
+    const movedPlayers = game.players
+      .map((player, index) =>
+        player.position !== previousGame.players?.[index]?.position ? index : null
+      )
+      .filter((value) => value !== null);
+
+    const starBurst = game.players.some(
+      (player, index) => player.stars > (previousGame.players?.[index]?.stars || 0)
+    );
+    const victory = Boolean(game.winner && game.winner !== previousGame.winner);
+
+    if (movedPlayers.length || starBurst || victory) {
+      setAnimationState({
+        movedPlayers,
+        starBurst,
+        victory,
+      });
+
+      const timeout = window.setTimeout(() => {
+        setAnimationState({
+          movedPlayers: [],
+          starBurst: false,
+          victory: false,
+        });
+      }, victory ? 1800 : 900);
+
+      previousGameRef.current = game;
+      return () => window.clearTimeout(timeout);
+    }
+
+    previousGameRef.current = game;
+    return undefined;
+  }, [game]);
+
   return (
     <div
       style={{
@@ -298,6 +356,23 @@ export default function App() {
         boxSizing: "border-box",
       }}
     >
+      <style>{`
+        @keyframes tokenHop {
+          0% { transform: translateY(8px) scale(0.94); opacity: 0.5; }
+          55% { transform: translateY(-6px) scale(1.06); opacity: 1; }
+          100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes starBurst {
+          0% { transform: scale(0.96); box-shadow: 0 0 0 rgba(245,158,11,0); }
+          45% { transform: scale(1.06); box-shadow: 0 0 34px rgba(245,158,11,0.38); }
+          100% { transform: scale(1); box-shadow: 0 16px 28px rgba(245,158,11,0.18); }
+        }
+        @keyframes victoryGlow {
+          0% { text-shadow: 0 0 0 rgba(245,158,11,0); transform: scale(1); }
+          50% { text-shadow: 0 0 18px rgba(245,158,11,0.7); transform: scale(1.03); }
+          100% { text-shadow: 0 0 0 rgba(245,158,11,0); transform: scale(1); }
+        }
+      `}</style>
       <div style={{ maxWidth: 1320, margin: "0 auto" }}>
         <header
           style={{
@@ -386,18 +461,6 @@ export default function App() {
                 <option value="online">Partie en ligne a 2 joueurs</option>
                 <option value="bot">Partie contre IA</option>
               </select>
-              {createMode === "bot" ? (
-                <select
-                  value={botDifficulty}
-                  onChange={(event) => setBotDifficulty(event.target.value)}
-                  style={inputStyle}
-                >
-                  <option value="0">IA niveau 0</option>
-                  <option value="1">IA niveau 1</option>
-                  <option value="2">IA niveau 2</option>
-                  <option value="3">IA niveau 3</option>
-                </select>
-              ) : null}
               <button onClick={createGame} disabled={busy} style={primaryButtonStyle}>
                 {createMode === "bot" ? "Creer une partie contre IA" : "Creer la partie"}
               </button>
@@ -463,7 +526,7 @@ export default function App() {
                 <div style={summaryCardStyle}>
                   <strong>Deck restant</strong>
                   <div style={{ fontSize: 28, fontWeight: 800, marginTop: 4 }}>
-                    {game.deck.length}
+                    {game.deckCount}
                   </div>
                 </div>
                 <div style={summaryCardStyle}>
@@ -472,7 +535,9 @@ export default function App() {
                     {game.phase === "lobby" ? (
                       <StatusPill label="Salle en attente" tone="warn" />
                     ) : game.winner ? (
-                      <StatusPill label={`Victoire : ${game.winner}`} tone="good" />
+                      <div style={{ animation: animationState.victory ? "victoryGlow 1400ms ease-in-out infinite" : "none" }}>
+                        <StatusPill label={`Victoire : ${game.winner}`} tone="good" />
+                      </div>
                     ) : pendingChoice ? (
                       <StatusPill label="Choix en attente" tone="warn" />
                     ) : viewerCanAct ? (
@@ -504,11 +569,15 @@ export default function App() {
                   {pendingChoice
                     ? pendingChoice.type === "reflet"
                       ? "Choisissez si le Reflet copie la carte de gauche ou de droite."
-                      : "Case 5 : choisissez une carte du dessus a defausser, ou passez."
+                      : pendingChoice.type === "banshee_discard"
+                      ? "Banshee : choisissez une colonne a defausser."
+                      : `Case ${pendingChoice.sourceCase} : choisissez une carte a retourner, ou passez.`
                     : activePlayerBlocked
                     ? "Aucun coup possible : choisissez une colonne a defausser."
+                    : hiddenPlacementMode
+                    ? "Pose face cachee selectionnee : choisissez une colonne."
                     : selectedCard
-                    ? `Carte selectionnee : ${selectedCardLabel} ${selectedCard.value}. Choisissez une colonne.`
+                    ? `Carte selectionnee : ${selectedCardLabel} ${selectedCard.value}. Jouez-la normalement ou face cachee.`
                     : "Selectionnez une carte dans la rangee commune."}
                 </div>
               ) : null}
@@ -522,12 +591,15 @@ export default function App() {
                     {pendingChoice.options.map((option) => (
                       <button
                         key={option.direction}
-                        onClick={() =>
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
                           sendAction({
                             type: "choose_reflet_direction",
                             direction: option.direction,
-                          })
-                        }
+                          });
+                        }}
                         style={choiceButtonStyle}
                       >
                         {option.direction === "left" ? "Gauche" : "Droite"} :{" "}
@@ -538,39 +610,75 @@ export default function App() {
                 </div>
               ) : null}
 
-              {pendingChoice?.type === "board_discard" ? (
+              {pendingChoice?.type === "banshee_discard" ? (
                 <div style={choicePanelStyle}>
                   <div style={{ fontWeight: 800, marginBottom: 10 }}>
-                    Case 5 : defausser une carte du dessus
+                    Banshee : defausser une colonne
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {pendingChoice.options.map((option) => (
+                      <button
+                        key={`${option.targetPlayerIndex}-${option.columnIndex}`}
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          sendAction({
+                            type: "resolve_banshee_discard",
+                            targetPlayerIndex: option.targetPlayerIndex,
+                            columnIndex: option.columnIndex,
+                          });
+                        }}
+                        style={choiceButtonStyle}
+                      >
+                        {option.targetPlayerName} col {option.columnIndex + 1} :{" "}
+                        {option.moonCount} lune(s)
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {pendingChoice?.type === "board_flip" ? (
+                <div style={choicePanelStyle}>
+                  <div style={{ fontWeight: 800, marginBottom: 10 }}>
+                    {pendingChoice.label || `Case ${pendingChoice.sourceCase}`} : retourner une carte
                   </div>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
                     {pendingChoice.options.map((option) => (
                       <button
-                        key={`${option.targetPlayerIndex}-${option.columnIndex}`}
-                        onClick={() =>
+                        key={`${option.targetPlayerIndex}-${option.columnIndex}-${option.rowIndex}`}
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
                           sendAction({
-                            type: "resolve_board_discard",
+                            type: "resolve_board_flip",
                             targetPlayerIndex: option.targetPlayerIndex,
                             columnIndex: option.columnIndex,
-                          })
-                        }
+                            rowIndex: option.rowIndex,
+                          });
+                        }}
                         style={choiceButtonStyle}
                       >
-                        {option.targetPlayerName} col {option.columnIndex + 1} :{" "}
-                        {option.cardLabel} {option.cardValue}
+                        {option.targetPlayerName} col {option.columnIndex + 1} rang{" "}
+                        {option.rowIndex + 1} : {option.cardLabel} {option.cardValue}
                       </button>
                     ))}
                   </div>
                   <button
-                    onClick={() =>
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
                       sendAction({
-                        type: "resolve_board_discard",
+                        type: "resolve_board_flip",
                         skip: true,
-                      })
-                    }
+                      });
+                    }}
                     style={secondaryChoiceButtonStyle}
                   >
-                    Ne rien defausser
+                    Ne rien retourner
                   </button>
                 </div>
               ) : null}
@@ -585,15 +693,39 @@ export default function App() {
             </Panel>
 
             <Panel title="Rangee commune">
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+                <button
+                  onClick={() => setHiddenPlacementMode((current) => !current)}
+                  disabled={
+                    !viewerCanAct ||
+                    activePlayerBlocked ||
+                    game.phase !== "playing" ||
+                    Boolean(pendingChoice) ||
+                    !selectedCard
+                  }
+                  style={hiddenPlacementMode ? primaryButtonStyle : secondaryButtonStyle}
+                >
+                  {hiddenPlacementMode ? "Pose face cachee selectionnee" : "Poser la carte selectionnee face cachee"}
+                </button>
+                {hiddenPlacementMode ? (
+                  <button onClick={() => setHiddenPlacementMode(false)} style={smallButtonStyle}>
+                    Annuler
+                  </button>
+                ) : null}
+              </div>
               <CommonRow
                 row={game.row}
                 selectedCardIndex={game.selectedCardIndex}
-                onSelectCard={(cardIndex) => sendAction({ type: "select_card", cardIndex })}
+                onSelectCard={(cardIndex) => {
+                  setHiddenPlacementMode(false);
+                  sendAction({ type: "select_card", cardIndex });
+                }}
                 disabled={
                   !viewerCanAct ||
                   activePlayerBlocked ||
                   game.phase !== "playing" ||
-                  Boolean(pendingChoice)
+                  Boolean(pendingChoice) ||
+                  hiddenPlacementMode
                 }
               />
             </Panel>
@@ -605,17 +737,27 @@ export default function App() {
                 activePlayerBlocked={activePlayerBlocked}
                 winner={game.winner}
                 canInteract={viewerCanAct && game.phase === "playing" && !pendingChoice}
+                animationState={animationState}
                 onColumnClick={(columnIndex) =>
-                  sendAction({
-                    type: activePlayerBlocked ? "discard_column" : "play_column",
-                    columnIndex,
-                  })
+                  hiddenPlacementMode
+                    ? sendAction({
+                        type: "play_selected_face_down",
+                        columnIndex,
+                      }).then((success) => {
+                        if (success) {
+                          setHiddenPlacementMode(false);
+                        }
+                      })
+                    : sendAction({
+                        type: activePlayerBlocked ? "discard_column" : "play_column",
+                        columnIndex,
+                      })
                 }
               />
             </Panel>
 
             <Panel title="Journal de partie">
-              <GameLog log={game.log} />
+              <GameLog log={game.log} players={game.players} />
             </Panel>
 
             <Panel title="Rappel des pouvoirs">
