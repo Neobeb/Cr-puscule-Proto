@@ -29,9 +29,14 @@ export const CREATURES = {
     color: "#fde68a",
     icon: "🪞",
   },
-  slime: {
-    label: "Slime",
-    color: "#86efac",
-    icon: "🟩",
+  banshee: {
+    label: "Banshee",
+    color: "#c4b5fd",
+    icon: "🕯️",
+  },
+  statue: {
+    label: "Statue",
+    color: "#cbd5e1",
+    icon: "🗿",
   },
 };
