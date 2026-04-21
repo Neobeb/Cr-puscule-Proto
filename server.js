@@ -14,60 +14,80 @@ const TYPE_LABELS = {
   zombie: "Zombie",
   reflet: "Reflet",
   banshee: "Banshee",
+  blob: "Blob",
+  momie: "Momie",
   statue: "Statue",
 };
 
-const cards = [
-  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
-    id: `sorciere-${value}`,
-    type: "sorciere",
-    value,
-    moon: value === 1,
-    chief: value === 6,
-  })),
-  ...[4, 4, 5, 5, 5, 6, 6].map((value, index) => ({
-    id: `vampire-${index}`,
-    type: "vampire",
-    value,
-    moon: value === 4,
-    chief: false,
-  })),
-  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
-    id: `squelette-${value}`,
-    type: "squelette",
-    value,
-    moon: value === 6,
-    chief: value === 0,
-  })),
-  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
-    id: `loup-${value}`,
-    type: "loup",
-    value,
-    moon: value === 5,
-    chief: value === 1 || value === 2,
-  })),
-  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
-    id: `zombie-${value}`,
-    type: "zombie",
-    value,
-    moon: false,
-    chief: true,
-  })),
-  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
-    id: `reflet-${value}`,
-    type: "reflet",
-    value,
-    moon: value === 4,
-    chief: value === 5 || value === 6,
-  })),
-  ...[0, 1, 2, 3, 4, 5, 6].map((value) => ({
-    id: `banshee-${value}`,
-    type: "banshee",
-    value,
-    moon: false,
-    chief: false,
-  })),
+const STANDARD_VALUES = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4];
+const PREMIUM_VALUES = [3, 3, 3, 3, 4, 4, 4, 4];
+const STOP_CASES = [9];
+const DEFAULT_FAMILY_TYPES = [
+  "sorciere",
+  "vampire",
+  "squelette",
+  "loup",
+  "zombie",
+  "reflet",
+  "banshee",
+  "blob",
+  "momie",
 ];
+
+function createCardSet(type, values, options = {}) {
+  const moonIndexes = new Set(options.moonIndexes || []);
+  const chiefIndexes = new Set(options.chiefIndexes || []);
+  const allChiefs = Boolean(options.allChiefs);
+
+  return values.map((value, index) => ({
+    id: `${type}-${index}`,
+    type,
+    value,
+    moon: moonIndexes.has(index),
+    chief: allChiefs || chiefIndexes.has(index),
+  }));
+}
+
+const CARD_SETS = {
+  sorciere: createCardSet("sorciere", STANDARD_VALUES, {
+    moonIndexes: [2],
+    chiefIndexes: [9],
+  }),
+  vampire: createCardSet("vampire", PREMIUM_VALUES, {
+    moonIndexes: [4],
+  }),
+  squelette: createCardSet("squelette", STANDARD_VALUES, {
+    moonIndexes: [9],
+    chiefIndexes: [0],
+  }),
+  loup: createCardSet("loup", STANDARD_VALUES, {
+    moonIndexes: [8],
+    chiefIndexes: [2, 3],
+  }),
+  zombie: createCardSet("zombie", STANDARD_VALUES, {
+    allChiefs: true,
+  }),
+  reflet: createCardSet("reflet", PREMIUM_VALUES, {
+    moonIndexes: [4],
+    chiefIndexes: [6, 7],
+  }),
+  banshee: createCardSet("banshee", STANDARD_VALUES),
+  blob: createCardSet("blob", STANDARD_VALUES, {
+    moonIndexes: [6],
+  }),
+  momie: createCardSet("momie", STANDARD_VALUES, {
+    moonIndexes: [7],
+  }),
+};
+
+function normalizeFamilyTypes(familyTypes) {
+  const requested = Array.isArray(familyTypes) ? familyTypes : DEFAULT_FAMILY_TYPES;
+  const valid = requested.filter((type, index) =>
+    DEFAULT_FAMILY_TYPES.includes(type) && requested.indexOf(type) === index
+  );
+
+  return valid.length ? valid : DEFAULT_FAMILY_TYPES;
+}
 
 const games = new Map();
 
@@ -114,17 +134,14 @@ function createEmptyStats() {
       zombie: 0,
     },
     caseEntries: {
-      3: 0,
       5: 0,
-      8: 0,
-      10: 0,
+      9: 0,
     },
-    case5: {
+    boardFlip: {
       prompts: 0,
       used: 0,
       skipped: 0,
     },
-    case8ZombieBoosts: 0,
     rowRefills: 0,
     rowReplacements: 0,
     cardActivations: {},
@@ -138,6 +155,24 @@ function ensureStats(game) {
   if (!game.stats) {
     game.stats = createEmptyStats();
   }
+
+  const defaults = createEmptyStats();
+  game.stats.caseEntries = {
+    ...defaults.caseEntries,
+    ...(game.stats.caseEntries || {}),
+  };
+  game.stats.boardFlip = {
+    ...defaults.boardFlip,
+    ...(game.stats.boardFlip || game.stats.case5 || {}),
+  };
+  game.stats.starsBySource = {
+    ...defaults.starsBySource,
+    ...(game.stats.starsBySource || {}),
+  };
+  game.stats.cardActivations = game.stats.cardActivations || {};
+  game.stats.cardMovementTotal = game.stats.cardMovementTotal || {};
+  game.stats.replaysGranted = game.stats.replaysGranted || {};
+  game.stats.winners = game.stats.winners || [];
 
   return game.stats;
 }
@@ -157,8 +192,9 @@ function recordReplayGranted(game, type, amount = 1) {
   stats.replaysGranted[type] = (stats.replaysGranted[type] || 0) + amount;
 }
 
-function createDeck() {
-  const deck = clone(cards);
+function createDeck(familyTypes = DEFAULT_FAMILY_TYPES) {
+  const selectedFamilies = normalizeFamilyTypes(familyTypes);
+  const deck = clone(selectedFamilies.flatMap((type) => CARD_SETS[type] || []));
 
   for (let i = deck.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -203,6 +239,10 @@ function getTopValue(column) {
 }
 
 function canPlaceCardInColumn(card, column) {
+  if (card.type === "blob") {
+    return true;
+  }
+
   return card.value >= getTopValue(column);
 }
 
@@ -237,15 +277,23 @@ function countMoonsInOpponentColumn(game, playerIndex, columnIndex) {
 
 function applyWerewolfEffect(game, playerIndex, columnIndex) {
   const moonCount = countMoonsInOpponentColumn(game, playerIndex, columnIndex);
-  const move = moonCount * 2;
+  const requestedMove = moonCount * 2;
+  const move = movePlayer(game, playerIndex, requestedMove);
 
-  game.players[playerIndex].position += move;
-
-  return { moonCount, move };
+  return { moonCount, move, requestedMove };
 }
 
 function movePlayer(game, playerIndex, amount) {
-  game.players[playerIndex].position += amount;
+  const player = game.players[playerIndex];
+  const previousPosition = player.position;
+  const targetPosition = previousPosition + amount;
+  const stopCase = STOP_CASES.find(
+    (value) => value > previousPosition && value <= targetPosition
+  );
+
+  player.position = stopCase ?? targetPosition;
+
+  return player.position - previousPosition;
 }
 
 function countCardsOfTypeOnPlayerBoard(game, playerIndex, type) {
@@ -271,6 +319,16 @@ function countColumnsWithFaceDownCards(game, playerIndex) {
   return game.players[playerIndex].columns.reduce(
     (total, column) =>
       total + (column.some((card) => card.faceUp === false) ? 1 : 0),
+    0
+  );
+}
+
+function countColumnsWithMoons(game, playerIndex) {
+  const player = game.players[playerIndex];
+  return player.columns.reduce(
+    (total, column, columnIndex) =>
+      total +
+      (countMoonsInColumn(column, player.columnMoons?.[columnIndex] || 0) > 0 ? 1 : 0),
     0
   );
 }
@@ -328,16 +386,18 @@ function resolveStarGain(game, playerIndex, reason, source = "case12") {
     return;
   }
 
+  refillCommonRow(game, `Etoile gagnee par ${player.name}`, { replaceIfFull: true });
+
   game.players[0].position = 0;
   game.players[1].position = 0;
 
   const chiefsPlayer0 = countChiefsOnPlayerBoard(game, 0);
   const chiefsPlayer1 = countChiefsOnPlayerBoard(game, 1);
 
-  game.players[0].position += chiefsPlayer0;
-  game.players[1].position += chiefsPlayer1;
+  const movePlayer0 = movePlayer(game, 0, chiefsPlayer0);
+  const movePlayer1 = movePlayer(game, 1, chiefsPlayer1);
   game.log.unshift(
-    `Reprise apres etoile : ${game.players[0].name} avance de ${chiefsPlayer0} grace a ses chefs, ${game.players[1].name} avance de ${chiefsPlayer1}.`
+    `Reprise apres etoile : ${game.players[0].name} avance de ${movePlayer0}/${chiefsPlayer0} grace a ses chefs, ${game.players[1].name} avance de ${movePlayer1}/${chiefsPlayer1}.`
   );
 }
 
@@ -435,10 +495,10 @@ function resolveRefletChoice(game, direction) {
     throw new Error("Direction invalide.");
   }
 
-  movePlayer(game, pendingChoice.playerIndex, option.cardValue);
-  recordCardMovement(game, "reflet", option.cardValue);
+  const move = movePlayer(game, pendingChoice.playerIndex, option.cardValue);
+  recordCardMovement(game, "reflet", move);
   game.log.unshift(
-    `${game.players[pendingChoice.playerIndex].name} choisit ${direction === "left" ? "gauche" : "droite"} pour son reflet : +${option.cardValue} grace a ${option.cardFaceUp ? `${getTypeLabel(option.cardType)} ${option.cardValue}` : "une carte retournee sans valeur"}.`
+    `${game.players[pendingChoice.playerIndex].name} choisit ${direction === "left" ? "gauche" : "droite"} pour son reflet : +${move}/${option.cardValue} grace a ${option.cardFaceUp ? `${getTypeLabel(option.cardType)} ${option.cardValue}` : "une carte retournee sans valeur"}.`
   );
   game.pendingChoice = null;
 }
@@ -446,7 +506,7 @@ function resolveRefletChoice(game, direction) {
 function createFlipOptions(game) {
   const options = [];
 
-  game.players.forEach((player, playerIndex) => {
+  game.players.forEach((player, targetPlayerIndex) => {
     player.columns.forEach((column, columnIndex) => {
       const visibleEntry = getLastVisibleCardEntry(column);
 
@@ -455,7 +515,7 @@ function createFlipOptions(game) {
       }
 
       options.push({
-        targetPlayerIndex: playerIndex,
+        targetPlayerIndex,
         columnIndex,
         rowIndex: visibleEntry.rowIndex,
         cardType: visibleEntry.card.type,
@@ -483,6 +543,30 @@ function createDiscardColumnOptions(game, ownerPlayerIndex) {
       columnIndex,
       moonCount: countMoonsInColumn(column, player.columnMoons?.[columnIndex] || 0),
       columnSize: column.length,
+    });
+  });
+
+  return options;
+}
+
+function createFaucheurDiscardOptions(game, ownerPlayerIndex) {
+  const options = [];
+  const player = game.players[ownerPlayerIndex];
+
+  player.columns.forEach((column, columnIndex) => {
+    const visibleEntry = getLastVisibleCardEntry(column);
+
+    if (!visibleEntry) {
+      return;
+    }
+
+    options.push({
+      targetPlayerIndex: ownerPlayerIndex,
+      columnIndex,
+      rowIndex: visibleEntry.rowIndex,
+      cardType: visibleEntry.card.type,
+      cardValue: getCardEffectiveValue(visibleEntry.card),
+      cardLabel: getTypeLabel(visibleEntry.card.type),
     });
   });
 
@@ -531,11 +615,6 @@ function maybeTriggerBoardEffect(game, playerIndex, previousPosition, options = 
   const player = game.players[playerIndex];
   const skippedCase = options.skipBoardCase ?? null;
 
-  if (player.position === 3 && previousPosition !== 3) {
-    ensureStats(game).caseEntries[3] += 1;
-    refillCommonRow(game, `${player.name} atteint la case 3`, { replaceIfFull: true });
-  }
-
   if (
     player.position === 5 &&
     previousPosition !== 5 &&
@@ -558,40 +637,16 @@ function maybeTriggerBoardEffect(game, playerIndex, previousPosition, options = 
       sourceCase: 5,
       options: flipOptions,
     };
-    ensureStats(game).case5.prompts += 1;
+    ensureStats(game).boardFlip.prompts += 1;
     game.log.unshift(
       `${player.name} atteint la case 5 et peut retourner une carte, chez lui ou chez l'adversaire.`
     );
     return;
   }
 
-  if (player.position === 8 && previousPosition !== 8 && skippedCase !== 8) {
-    ensureStats(game).caseEntries[8] += 1;
-    const flipOptions = createFlipOptions(game);
-
-    if (!flipOptions.length) {
-      game.log.unshift(
-        `${player.name} atteint la case 8, mais aucune carte n'est disponible a retourner.`
-      );
-      return;
-    }
-
-    game.pendingChoice = {
-      type: "board_flip",
-      playerIndex,
-      optional: true,
-      sourceCase: 8,
-      options: flipOptions,
-    };
-    game.log.unshift(
-      `${player.name} atteint la case 8 et peut retourner une carte, chez lui ou chez l'adversaire.`
-    );
-    return;
-  }
-
-  if (player.position === 10 && previousPosition !== 10) {
-    ensureStats(game).caseEntries[10] += 1;
-    refillCommonRow(game, `${player.name} atteint la case 10`, { replaceIfFull: true });
+  if (player.position === 9 && previousPosition !== 9) {
+    ensureStats(game).caseEntries[9] += 1;
+    game.log.unshift(`${player.name} s'arrete sur la case stop 9.`);
   }
 }
 
@@ -603,9 +658,7 @@ function resolveBoardFlipChoice(game, action) {
   }
 
   if (action.skip) {
-    if (pendingChoice.sourceCase === 5) {
-      ensureStats(game).case5.skipped += 1;
-    }
+    ensureStats(game).boardFlip.skipped += 1;
     game.log.unshift(
       `${game.players[pendingChoice.playerIndex].name} choisit de ne pas retourner de carte sur la case ${pendingChoice.sourceCase}.`
     );
@@ -637,9 +690,7 @@ function resolveBoardFlipChoice(game, action) {
 
   targetCard.faceUp = false;
 
-  if (pendingChoice.sourceCase === 5) {
-    ensureStats(game).case5.used += 1;
-  }
+  ensureStats(game).boardFlip.used += 1;
 
   game.log.unshift(
     `${game.players[pendingChoice.playerIndex].name} retourne la carte de rang ${action.rowIndex + 1} dans la colonne ${action.columnIndex + 1} de ${game.players[action.targetPlayerIndex].name}.`
@@ -672,11 +723,47 @@ function resolveBansheeDiscardChoice(game, action) {
   }
 
   targetPlayer.columns[action.columnIndex] = [];
-  movePlayer(game, pendingChoice.playerIndex, option.moonCount);
+  const move = movePlayer(game, pendingChoice.playerIndex, option.moonCount);
   recordCardActivation(game, "banshee");
-  recordCardMovement(game, "banshee", option.moonCount);
+  recordCardMovement(game, "banshee", move);
   game.log.unshift(
-    `${game.players[pendingChoice.playerIndex].name} active Banshee ${pendingChoice.cardValue} : defausse la colonne ${action.columnIndex + 1} de ${targetPlayer.name} puis +${option.moonCount}`
+    `${game.players[pendingChoice.playerIndex].name} active Banshee ${pendingChoice.cardValue} : defausse la colonne ${action.columnIndex + 1} de ${targetPlayer.name} puis +${move}/${option.moonCount}`
+  );
+  game.pendingChoice = null;
+}
+
+function resolveFaucheurDiscardChoice(game, action) {
+  const pendingChoice = game.pendingChoice;
+
+  if (!pendingChoice || pendingChoice.type !== "faucheur_discard") {
+    throw new Error("Aucun choix Faucheur en attente.");
+  }
+
+  const option = pendingChoice.options.find(
+    (entry) =>
+      entry.targetPlayerIndex === action.targetPlayerIndex &&
+      entry.columnIndex === action.columnIndex &&
+      entry.rowIndex === action.rowIndex
+  );
+
+  if (!option) {
+    throw new Error("Cible de defausse invalide.");
+  }
+
+  const targetColumn =
+    game.players[action.targetPlayerIndex].columns[action.columnIndex];
+  const targetCard = targetColumn?.[action.rowIndex];
+
+  if (!targetCard || targetCard.faceUp === false) {
+    throw new Error("Carte introuvable.");
+  }
+
+  targetColumn.splice(action.rowIndex, 1);
+  const move = movePlayer(game, pendingChoice.playerIndex, 2);
+  recordCardActivation(game, "faucheur");
+  recordCardMovement(game, "faucheur", move);
+  game.log.unshift(
+    `${game.players[pendingChoice.playerIndex].name} active Faucheur ${pendingChoice.cardValue} : defausse ${getTypeLabel(targetCard.type)} ${getCardEffectiveValue(targetCard)} en colonne ${action.columnIndex + 1}, puis +${move}/2`
   );
   game.pendingChoice = null;
 }
@@ -684,10 +771,10 @@ function resolveBansheeDiscardChoice(game, action) {
 function applyCardEffect(game, playerIndex, card, columnIndex) {
   if (card.faceUp === false) {
     recordCardActivation(game, "carte_cachee");
-    movePlayer(game, playerIndex, 1);
-    recordCardMovement(game, "carte_cachee", 1);
+    const move = movePlayer(game, playerIndex, 1);
+    recordCardMovement(game, "carte_cachee", move);
     game.log.unshift(
-      `${game.players[playerIndex].name} joue une carte cachee sans valeur ni effet : +1`
+      `${game.players[playerIndex].name} joue une carte cachee sans valeur ni effet : +${move}/1`
     );
     return;
   }
@@ -701,8 +788,8 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       return;
     case "squelette": {
       recordCardActivation(game, "squelette");
-      movePlayer(game, playerIndex, 1);
-      recordCardMovement(game, "squelette", 1);
+      const move = movePlayer(game, playerIndex, 1);
+      recordCardMovement(game, "squelette", move);
       const playerColumn = game.players[playerIndex].columns[columnIndex];
       const cardBelow = playerColumn[playerColumn.length - 2] || null;
       const hasMoonOnBoardCase =
@@ -717,8 +804,8 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       }
       game.log.unshift(
         shouldReplay
-          ? `${game.players[playerIndex].name} active Squelette ${card.value} : +1 et rejoue grace a une lune sous la carte ou sur la case`
-          : `${game.players[playerIndex].name} active Squelette ${card.value} : +1`
+          ? `${game.players[playerIndex].name} active Squelette ${card.value} : +${move}/1 et rejoue grace a une lune sous la carte ou sur la case`
+          : `${game.players[playerIndex].name} active Squelette ${card.value} : +${move}/1`
       );
       return;
     }
@@ -728,10 +815,10 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       const handZoneIndex = getZoneIndexFromPosition(playerPosition);
 
       if (columnIndex === handZoneIndex) {
-        movePlayer(game, playerIndex, 3);
-        recordCardMovement(game, "sorciere", 3);
+        const move = movePlayer(game, playerIndex, 3);
+        recordCardMovement(game, "sorciere", move);
         game.log.unshift(
-          `${game.players[playerIndex].name} active Sorciere ${card.value} : jouee dans sa zone -> +3`
+          `${game.players[playerIndex].name} active Sorciere ${card.value} : jouee dans sa zone -> +${move}/3`
         );
       } else {
         game.log.unshift(
@@ -745,7 +832,7 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       const result = applyWerewolfEffect(game, playerIndex, columnIndex);
       recordCardMovement(game, "loup", result.move);
       game.log.unshift(
-        `${game.players[playerIndex].name} active Loup ${card.value} : ${result.moonCount} lune(s) dans la colonne adverse -> +${result.move}`
+        `${game.players[playerIndex].name} active Loup ${card.value} : ${result.moonCount} lune(s) dans la colonne adverse -> +${result.move}/${result.requestedMove}`
       );
       return;
     }
@@ -756,10 +843,10 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       const oppositeTopCard = getTopCard(oppositeColumn);
       const copiedValue = getCardEffectiveValue(oppositeTopCard);
 
-      movePlayer(game, playerIndex, copiedValue);
-      recordCardMovement(game, "vampire", copiedValue);
+      const move = movePlayer(game, playerIndex, copiedValue);
+      recordCardMovement(game, "vampire", move);
       game.log.unshift(
-        `${game.players[playerIndex].name} active Vampire ${card.value} : copie ${copiedValue} depuis la colonne ${columnIndex + 1} adverse`
+        `${game.players[playerIndex].name} active Vampire ${card.value} : copie ${copiedValue} depuis la colonne ${columnIndex + 1} adverse -> +${move}/${copiedValue}`
       );
       return;
     }
@@ -782,10 +869,10 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       }
 
       const move = moveByZombieCount[zombieCount] || 0;
-      movePlayer(game, playerIndex, move);
-      recordCardMovement(game, "zombie", move);
+      const actualMove = movePlayer(game, playerIndex, move);
+      recordCardMovement(game, "zombie", actualMove);
       game.log.unshift(
-        `${game.players[playerIndex].name} active Zombie ${card.value} : ${zombieCount} zombie(s) -> +${move}`
+        `${game.players[playerIndex].name} active Zombie ${card.value} : ${zombieCount} zombie(s) -> +${actualMove}/${move}`
       );
       return;
     }
@@ -801,10 +888,10 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       }
 
       if (options.length === 1) {
-        movePlayer(game, playerIndex, options[0].cardValue);
-        recordCardMovement(game, "reflet", options[0].cardValue);
+        const move = movePlayer(game, playerIndex, options[0].cardValue);
+        recordCardMovement(game, "reflet", move);
         game.log.unshift(
-          `${game.players[playerIndex].name} active Reflet ${card.value} : +${options[0].cardValue} grace a ${options[0].cardFaceUp ? `${getTypeLabel(options[0].cardType)} ${options[0].cardValue}` : "une carte retournee sans valeur"}`
+          `${game.players[playerIndex].name} active Reflet ${card.value} : +${move}/${options[0].cardValue} grace a ${options[0].cardFaceUp ? `${getTypeLabel(options[0].cardType)} ${options[0].cardValue}` : "une carte retournee sans valeur"}`
         );
         return;
       }
@@ -840,6 +927,69 @@ function applyCardEffect(game, playerIndex, card, columnIndex) {
       };
       game.log.unshift(
         `${game.players[playerIndex].name} doit choisir une colonne a defausser pour sa Banshee ${card.value}.`
+      );
+      return;
+    }
+    case "harpie": {
+      recordCardActivation(game, "harpie");
+      const moonColumnCount = countColumnsWithMoons(game, playerIndex);
+      const move = movePlayer(game, playerIndex, moonColumnCount);
+      recordCardMovement(game, "harpie", move);
+      game.log.unshift(
+        `${game.players[playerIndex].name} active Harpie ${card.value} : ${moonColumnCount} colonne(s) avec lune -> +${move}/${moonColumnCount}`
+      );
+      return;
+    }
+    case "faucheur": {
+      const discardOptions = createFaucheurDiscardOptions(game, playerIndex);
+
+      game.pendingChoice = {
+        type: "faucheur_discard",
+        playerIndex,
+        optional: false,
+        label: "Faucheur",
+        cardValue: card.value,
+        options: discardOptions,
+      };
+      game.log.unshift(
+        `${game.players[playerIndex].name} doit choisir une carte visible du dessus a defausser pour son Faucheur ${card.value}.`
+      );
+      return;
+    }
+    case "blob": {
+      recordCardActivation(game, "blob");
+      const move = movePlayer(game, playerIndex, 1);
+      recordCardMovement(game, "blob", move);
+      game.log.unshift(
+        `${game.players[playerIndex].name} active Blob ${card.value} : pose libre, la colonne vaut maintenant ${card.value}, puis +${move}/1`
+      );
+      return;
+    }
+    case "momie": {
+      recordCardActivation(game, "momie");
+      const playerColumn = game.players[playerIndex].columns[columnIndex];
+      const cardBelow = playerColumn[playerColumn.length - 2] || null;
+      const requestedMove = cardBelow?.faceUp === false ? 4 : 2;
+      const move = movePlayer(game, playerIndex, requestedMove);
+      recordCardMovement(game, "momie", move);
+      game.log.unshift(
+        `${game.players[playerIndex].name} active Momie ${card.value} : ${cardBelow?.faceUp === false ? "sur carte cachee" : "sans carte cachee dessous"} -> +${move}/${requestedMove}`
+      );
+      return;
+    }
+    case "fee_noire": {
+      recordCardActivation(game, "fee_noire");
+      refillCommonRow(game, `${game.players[playerIndex].name} active Fee noire ${card.value}`, {
+        replaceIfFull: true,
+      });
+      const weakCards = game.row.filter(
+        (rowCard) => rowCard.faceUp !== false && rowCard.value <= 1
+      ).length;
+      const requestedMove = 1 + weakCards;
+      const move = movePlayer(game, playerIndex, requestedMove);
+      recordCardMovement(game, "fee_noire", move);
+      game.log.unshift(
+        `${game.players[playerIndex].name} active Fee noire ${card.value} : +1 puis ${weakCards} carte(s) de valeur 0 ou 1 dans la rangee -> +${move}/${requestedMove}`
       );
       return;
     }
@@ -889,7 +1039,8 @@ function createStartingColumns() {
 }
 
 function createInitialState(hostName, options = {}) {
-  const deck = createDeck();
+  const familyTypes = normalizeFamilyTypes(options.familyTypes);
+  const deck = createDeck(familyTypes);
   const { drawn, remaining } = drawCards(deck, 4);
   const playerOne = createPlayer(normalizeName(hostName, "Joueur 1"));
 
@@ -914,6 +1065,7 @@ function createInitialState(hostName, options = {}) {
     extraTurn: false,
     pendingChoice: null,
     pendingPlay: null,
+    familyTypes,
     deck: remaining,
     row: drawn,
     players: [playerOne, playerTwo],
@@ -926,7 +1078,8 @@ function createInitialState(hostName, options = {}) {
 }
 
 function resetGameState(existingGame) {
-  const deck = createDeck();
+  const familyTypes = normalizeFamilyTypes(existingGame.familyTypes);
+  const deck = createDeck(familyTypes);
   const { drawn, remaining } = drawCards(deck, 4);
 
   existingGame.phase = "playing";
@@ -937,6 +1090,7 @@ function resetGameState(existingGame) {
   existingGame.extraTurn = false;
   existingGame.pendingChoice = null;
   existingGame.pendingPlay = null;
+  existingGame.familyTypes = familyTypes;
   existingGame.deck = remaining;
   existingGame.row = drawn;
   existingGame.updatedAt = Date.now();
@@ -1030,6 +1184,23 @@ function sanitizeGame(game, playerId) {
         })),
       };
     }
+
+    if (game.pendingChoice.type === "faucheur_discard") {
+      pendingChoice = {
+        type: game.pendingChoice.type,
+        optional: false,
+        label: "Faucheur",
+        options: game.pendingChoice.options.map((option) => ({
+          targetPlayerIndex: option.targetPlayerIndex,
+          targetPlayerName: game.players[option.targetPlayerIndex].name,
+          columnIndex: option.columnIndex,
+          rowIndex: option.rowIndex,
+          cardValue: option.cardValue,
+          cardType: option.cardType,
+          cardLabel: option.cardLabel,
+        })),
+      };
+    }
   }
 
   const visiblePlayers = game.players.map((player) => ({
@@ -1057,6 +1228,7 @@ function sanitizeGame(game, playerId) {
     winner: game.winner,
     currentPlayer: game.currentPlayer,
     currentPlayerName: currentPlayer.name,
+    familyTypes: normalizeFamilyTypes(game.familyTypes),
     selectedCardIndex: game.selectedCardIndex,
     pendingChoice,
     deckCount: game.deck.length,
@@ -1188,6 +1360,27 @@ function expandPendingChoicesForOutcome(state, playerId, actions) {
           type: "resolve_banshee_discard",
           targetPlayerIndex: option.targetPlayerIndex,
           columnIndex: option.columnIndex,
+        },
+      ]);
+    });
+  }
+
+  if (state.pendingChoice.type === "faucheur_discard") {
+    return state.pendingChoice.options.flatMap((option) => {
+      const nextState = clone(state);
+      performAction(nextState, playerId, {
+        type: "resolve_faucheur_discard",
+        targetPlayerIndex: option.targetPlayerIndex,
+        columnIndex: option.columnIndex,
+        rowIndex: option.rowIndex,
+      });
+      return expandPendingChoicesForOutcome(nextState, playerId, [
+        ...actions,
+        {
+          type: "resolve_faucheur_discard",
+          targetPlayerIndex: option.targetPlayerIndex,
+          columnIndex: option.columnIndex,
+          rowIndex: option.rowIndex,
         },
       ]);
     });
@@ -1415,6 +1608,28 @@ function chooseBotPendingChoice(game, botIndex) {
         },
       ],
       score: target.moonCount * 10 + target.columnSize,
+    };
+  }
+
+  if (pendingChoice.type === "faucheur_discard") {
+    const target = [...pendingChoice.options].sort((a, b) => {
+      const selfPenaltyA = a.cardType === "faucheur" ? -10 : 0;
+      const selfPenaltyB = b.cardType === "faucheur" ? -10 : 0;
+      const scoreA = a.cardValue * 10 + selfPenaltyA;
+      const scoreB = b.cardValue * 10 + selfPenaltyB;
+      return scoreB - scoreA;
+    })[0];
+
+    return {
+      actions: [
+        {
+          type: "resolve_faucheur_discard",
+          targetPlayerIndex: target.targetPlayerIndex,
+          columnIndex: target.columnIndex,
+          rowIndex: target.rowIndex,
+        },
+      ],
+      score: target.cardValue * 10,
     };
   }
 
@@ -1727,6 +1942,24 @@ function performAction(game, playerId, action) {
     return;
   }
 
+  if (action.type === "resolve_faucheur_discard") {
+    if (!game.pendingChoice || game.pendingChoice.playerIndex !== playerIndex) {
+      throw new Error("Aucun choix Faucheur en attente.");
+    }
+
+    const pendingPlay = game.pendingPlay;
+    resolveFaucheurDiscardChoice(game, action);
+    finalizeTurnAfterResolvedPlay(
+      game,
+      playerIndex,
+      pendingPlay?.wasLeftmostCard,
+      pendingPlay?.previousPosition,
+      pendingPlay?.shouldRefillRow
+    );
+    game.pendingPlay = null;
+    return;
+  }
+
   if (game.pendingChoice) {
     throw new Error("Un choix est en attente avant de poursuivre.");
   }
@@ -1959,6 +2192,7 @@ function handleApi(req, res, url) {
         const state = createInitialState(body.playerName, {
           mode: body.mode,
           botDifficulty: body.botDifficulty,
+          familyTypes: body.familyTypes,
         });
         games.set(state.id, { state, clients: new Set() });
         sendJson(res, 201, {
