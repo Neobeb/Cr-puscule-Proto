@@ -1,16 +1,30 @@
 import { CREATURES } from "../data/creatures";
 
 const CARD_WIDTH = 112;
-const CARD_HEIGHT = 148;
+const CARD_HEIGHT = 172;
 const EFFECT_HINTS = {
   sorciere: "zone +3",
   vampire: "copie face",
   squelette: "lune +1",
   loup: "lunes x2",
-  zombie: "zombies cumul",
+  zombie: "+1/+2/+4/+6/⭐",
   reflet: "meme niveau",
   banshee: "defausse lune",
+  blob: "pose libre",
+  momie: "cachee +4",
   statue: "lune fixe",
+};
+const EFFECT_TEXTS = {
+  sorciere: "Avancez de 3 si votre pion est dans cette zone.",
+  vampire: "Avancez de la valeur de la carte en face.",
+  squelette: "Avancez de 1. Rejouez si pose sur une lune.",
+  loup: "Avancez de 2 par lune dans la colonne adverse.",
+  zombie: "+1/+2/+4/+6/⭐",
+  reflet: "Copiez la valeur a gauche ou a droite au meme niveau.",
+  banshee: "Defaussez une de vos colonnes, puis avancez par lune.",
+  blob: "Pose libre. +1. Refixe la valeur.",
+  momie: "Avancez de 2, ou de 4 sur une carte cachee.",
+  statue: "Carte de depart avec une lune.",
 };
 
 export default function CardView({
@@ -26,6 +40,9 @@ export default function CardView({
   const textColor = isFaceUp ? "#0f172a" : "#f8fafc";
   const displayedValue = isFaceUp ? card.value : "-";
   const effectHint = isFaceUp ? EFFECT_HINTS[card.type] || "" : "cachee +1";
+  const effectText = isFaceUp
+    ? EFFECT_TEXTS[card.type] || effectHint
+    : "Aucune valeur. Compte comme une lune. Avance de 1.";
 
   return (
     <div
@@ -43,6 +60,7 @@ export default function CardView({
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
+        overflow: "hidden",
         boxShadow: isSelected
           ? "0 0 0 3px rgba(37,99,235,0.15), 0 12px 24px rgba(15,23,42,0.18)"
           : "0 10px 22px rgba(15,23,42,0.12)",
@@ -60,6 +78,11 @@ export default function CardView({
           justifyContent: "flex-start",
         }}
       >
+        {isFaceUp ? (
+          <span title="Valeur" style={valueBadgeStyle}>
+            {card.value}
+          </span>
+        ) : null}
         {card.moon ? (
           <span title="Lune" style={badgeStyle}>
             🌙
@@ -88,8 +111,8 @@ export default function CardView({
         ) : null}
       </div>
 
-      <div style={{ paddingTop: 8 }}>
-        <div style={{ fontSize: 30, lineHeight: 1, marginBottom: 8 }}>
+      <div style={{ paddingTop: 10 }}>
+        <div style={{ fontSize: 26, lineHeight: 1, marginBottom: 4 }}>
           {isFaceUp ? creature?.icon || "?" : "?"}
         </div>
         <div
@@ -97,7 +120,7 @@ export default function CardView({
             fontSize: 13,
             fontWeight: 800,
             lineHeight: 1.1,
-            minHeight: 28,
+            minHeight: 24,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -111,10 +134,10 @@ export default function CardView({
       <div>
         <div
           style={{
-            fontSize: 34,
+            fontSize: 30,
             fontWeight: 900,
             lineHeight: 1,
-            marginBottom: 6,
+            marginBottom: 5,
           }}
         >
           {displayedValue}
@@ -122,9 +145,9 @@ export default function CardView({
 
         <div
           style={{
-            minHeight: 22,
-            fontSize: 8,
-            lineHeight: 1.2,
+            minHeight: 44,
+            fontSize: 8.5,
+            lineHeight: 1.18,
             opacity: isFaceUp ? 0.82 : 0.95,
             display: "flex",
             alignItems: "center",
@@ -139,7 +162,7 @@ export default function CardView({
             boxSizing: "border-box",
           }}
         >
-          {effectHint}
+          {effectText}
         </div>
       </div>
     </div>
@@ -154,4 +177,12 @@ const badgeStyle = {
   borderRadius: 999,
   padding: "3px 6px",
   boxShadow: "0 2px 4px rgba(15,23,42,0.12)",
+};
+
+const valueBadgeStyle = {
+  ...badgeStyle,
+  minWidth: 18,
+  fontWeight: 900,
+  background: "rgba(15,23,42,0.9)",
+  color: "#f8fafc",
 };
