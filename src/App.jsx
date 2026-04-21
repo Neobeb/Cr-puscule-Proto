@@ -103,17 +103,66 @@ const CARD_RULES = [
   { name: "Vampire", effect: "Copie la valeur de la carte du dessus dans la colonne adverse correspondante." },
   { name: "Squelette", effect: "Avance de 1 puis rejoue s'il est pose sur une lune ou sur une carte lune." },
   { name: "Loup", effect: "Avance de 2 par lune presente dans la colonne adverse correspondante." },
-  { name: "Zombie", effect: "Avance selon votre nombre total de zombies. Tous les zombies sont des chefs. A 5 ou plus, gagne une etoile." },
+  { name: "Zombie", effect: "Avance selon votre nombre total de zombies. Tous les zombies sont des chefs. +1/+2/+4/+6/⭐" },
   { name: "Reflet", effect: "Copie la valeur de la carte au meme niveau a gauche ou a droite. Si les deux existent, choisissez." },
   { name: "Banshee", effect: "Defausse une de vos colonnes, puis avance du nombre de lunes dans cette colonne." },
+  { name: "Blob", effect: "Peut etre pose dans n'importe quelle colonne. Avance de 1 et refixe la valeur de la colonne." },
+  { name: "Momie", effect: "Avance de 2, ou de 4 si elle est jouee sur une carte face cachee." },
 ];
 
 const BOARD_RULES = [
-  { name: "Case 3", effect: "Refill de la rangee. Si elle est pleine, elle est defaussee puis remplacee." },
   { name: "Case 5", effect: "Vous pouvez retourner la derniere carte visible d'une colonne, chez vous ou chez l'adversaire." },
-  { name: "Case 8", effect: "Vous pouvez retourner la derniere carte visible d'une colonne, chez vous ou chez l'adversaire." },
-  { name: "Case 10", effect: "Refill de la rangee. Si elle est pleine, elle est defaussee puis remplacee." },
+  { name: "Case 9", effect: "Stop : si un deplacement atteint ou depasse cette case, le pion s'y arrete." },
   { name: "Chefs", effect: "Apres une etoile, les deux pions reviennent a 0 puis avancent du nombre de chefs poses de chaque cote." },
+  { name: "Etoile", effect: "Quand une etoile est gagnee, la rangee commune est automatiquement refaite." },
+];
+
+const FAMILY_OPTIONS = [
+  {
+    type: "sorciere",
+    label: "Sorciere",
+    effect: "Avance de 3 si votre pion est dans la zone de la colonne jouee.",
+  },
+  {
+    type: "vampire",
+    label: "Vampire",
+    effect: "Copie la valeur de la carte du dessus dans la colonne adverse.",
+  },
+  {
+    type: "squelette",
+    label: "Squelette",
+    effect: "Avance de 1 puis rejoue s'il est pose sur une lune.",
+  },
+  {
+    type: "loup",
+    label: "Loup",
+    effect: "Avance de 2 par lune dans la colonne adverse.",
+  },
+  {
+    type: "zombie",
+    label: "Zombie",
+    effect: "Avance selon vos zombies. Tous les zombies sont chefs. +1/+2/+4/+6/etoile.",
+  },
+  {
+    type: "reflet",
+    label: "Reflet",
+    effect: "Copie la valeur au meme niveau a gauche ou a droite.",
+  },
+  {
+    type: "banshee",
+    label: "Banshee",
+    effect: "Defausse une de vos colonnes, puis avance du nombre de lunes dedans.",
+  },
+  {
+    type: "blob",
+    label: "Blob",
+    effect: "Pose libre. Avance de 1 et refixe la valeur de la colonne.",
+  },
+  {
+    type: "momie",
+    label: "Momie",
+    effect: "Avance de 2, ou de 4 si elle est jouee sur une carte face cachee.",
+  },
 ];
 
 export default function App() {
@@ -122,6 +171,9 @@ export default function App() {
   const [game, setGame] = useState(null);
   const [createName, setCreateName] = useState("");
   const [createMode, setCreateMode] = useState("online");
+  const [selectedFamilyTypes, setSelectedFamilyTypes] = useState(
+    FAMILY_OPTIONS.map((family) => family.type)
+  );
   const [joinName, setJoinName] = useState("");
   const [joinCode, setJoinCode] = useState(initialSession.gameId || "");
   const [error, setError] = useState("");
@@ -201,6 +253,7 @@ export default function App() {
         body: JSON.stringify({
           playerName: createName,
           mode: createMode,
+          familyTypes: selectedFamilyTypes,
         }),
       });
 
@@ -219,6 +272,14 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleFamily(type) {
+    setSelectedFamilyTypes((current) =>
+      current.includes(type)
+        ? current.filter((entry) => entry !== type)
+        : [...current, type]
+    );
   }
 
   async function joinGame() {
@@ -461,9 +522,50 @@ export default function App() {
                 <option value="online">Partie en ligne a 2 joueurs</option>
                 <option value="bot">Partie contre IA</option>
               </select>
-              <button onClick={createGame} disabled={busy} style={primaryButtonStyle}>
+              <div style={familySelectorStyle}>
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>Familles en jeu</div>
+                <div style={familyGridStyle}>
+                  {FAMILY_OPTIONS.map((family) => (
+                    <label key={family.type} style={familyOptionStyle}>
+                      <input
+                        type="checkbox"
+                        checked={selectedFamilyTypes.includes(family.type)}
+                        onChange={() => toggleFamily(family.type)}
+                      />
+                      <span>
+                        <span style={familyLabelStyle}>{family.label}</span>
+                        <span style={familyEffectStyle}>{family.effect}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFamilyTypes(FAMILY_OPTIONS.map((family) => family.type))}
+                    style={miniButtonStyle}
+                  >
+                    Tout cocher
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFamilyTypes([])}
+                    style={miniButtonStyle}
+                  >
+                    Tout retirer
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={createGame}
+                disabled={busy || selectedFamilyTypes.length === 0}
+                style={primaryButtonStyle}
+              >
                 {createMode === "bot" ? "Creer une partie contre IA" : "Creer la partie"}
               </button>
+              {selectedFamilyTypes.length === 0 ? (
+                <div style={smallHelpStyle}>Choisissez au moins une famille.</div>
+              ) : null}
             </Panel>
 
             <Panel title="Rejoindre une partie">
@@ -571,6 +673,8 @@ export default function App() {
                       ? "Choisissez si le Reflet copie la carte de gauche ou de droite."
                       : pendingChoice.type === "banshee_discard"
                       ? "Banshee : choisissez une colonne a defausser."
+                      : pendingChoice.type === "faucheur_discard"
+                      ? "Faucheur : choisissez une carte visible du dessus a defausser."
                       : `Case ${pendingChoice.sourceCase} : choisissez une carte a retourner, ou passez.`
                     : activePlayerBlocked
                     ? "Aucun coup possible : choisissez une colonne a defausser."
@@ -633,6 +737,36 @@ export default function App() {
                       >
                         {option.targetPlayerName} col {option.columnIndex + 1} :{" "}
                         {option.moonCount} lune(s)
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {pendingChoice?.type === "faucheur_discard" ? (
+                <div style={choicePanelStyle}>
+                  <div style={{ fontWeight: 800, marginBottom: 10 }}>
+                    Faucheur : defausser une carte visible
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {pendingChoice.options.map((option) => (
+                      <button
+                        key={`${option.targetPlayerIndex}-${option.columnIndex}-${option.rowIndex}`}
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          sendAction({
+                            type: "resolve_faucheur_discard",
+                            targetPlayerIndex: option.targetPlayerIndex,
+                            columnIndex: option.columnIndex,
+                            rowIndex: option.rowIndex,
+                          });
+                        }}
+                        style={choiceButtonStyle}
+                      >
+                        {option.targetPlayerName} col {option.columnIndex + 1} :{" "}
+                        {option.cardLabel} {option.cardValue}
                       </button>
                     ))}
                   </div>
@@ -820,6 +954,61 @@ const smallButtonStyle = {
   border: "1px solid #cbd5e1",
   background: "white",
   cursor: "pointer",
+};
+
+const miniButtonStyle = {
+  padding: "8px 10px",
+  borderRadius: 10,
+  border: "1px solid #cbd5e1",
+  background: "white",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 700,
+};
+
+const familySelectorStyle = {
+  border: "1px solid #cbd5e1",
+  borderRadius: 14,
+  background: "#f8fafc",
+  padding: 12,
+  marginBottom: 12,
+};
+
+const familyGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+  gap: 8,
+};
+
+const familyOptionStyle = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: 8,
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "white",
+  border: "1px solid #e2e8f0",
+  cursor: "pointer",
+};
+
+const familyLabelStyle = {
+  display: "block",
+  fontWeight: 800,
+};
+
+const familyEffectStyle = {
+  display: "block",
+  marginTop: 3,
+  color: "#475569",
+  fontSize: 12,
+  lineHeight: 1.25,
+};
+
+const smallHelpStyle = {
+  marginTop: 8,
+  fontSize: 12,
+  color: "#9a3412",
+  fontWeight: 700,
 };
 
 const topBarStyle = {
