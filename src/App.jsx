@@ -5,6 +5,8 @@ import GameLog from "./components/GameLog";
 import { CREATURES } from "./data/creatures";
 
 const API_BASE = process.env.REACT_APP_API_URL || "";
+const STANDARD_VALUES = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4];
+const PREMIUM_VALUES = [3, 3, 3, 3, 3, 4, 4, 4, 4, 4];
 
 function getStoredSession() {
   const params = new URLSearchParams(window.location.search);
@@ -99,29 +101,46 @@ function Panel({ title, children }) {
 const CARD_RULES = [
   { name: "Face cachee", effect: "Une carte de la rangee peut etre jouee face cachee dans n'importe quelle colonne. Elle n'a aucune valeur, compte comme une lune, et avance de 1." },
   { name: "Statue", effect: "Chaque joueur commence avec une Statue 2 avec lune dans sa deuxieme colonne." },
-  { name: "Sorciere", effect: "Avance de 3 si votre pion est dans la zone de la colonne jouee." },
+  { name: "Depart", effect: "Le joueur 2 commence avec 1 case d'avance, seulement au debut de la partie." },
+  { name: "Sorciere", effect: "Avance de 1, ou de 3 si votre pion est dans la zone de la colonne jouee. Ignore les stops." },
   { name: "Vampire", effect: "Copie la valeur de la carte du dessus dans la colonne adverse correspondante." },
   { name: "Squelette", effect: "Avance de 1 puis rejoue s'il est pose sur une lune ou sur une carte lune." },
   { name: "Loup", effect: "Avance de 2 par lune presente dans la colonne adverse correspondante." },
   { name: "Zombie", effect: "Avance selon votre nombre total de zombies. Tous les zombies sont des chefs. +1/+2/+4/+6/⭐" },
   { name: "Reflet", effect: "Copie la valeur de la carte au meme niveau a gauche ou a droite. Si les deux existent, choisissez." },
-  { name: "Banshee", effect: "Defausse une de vos colonnes, puis avance du nombre de lunes dans cette colonne." },
-  { name: "Blob", effect: "Peut etre pose dans n'importe quelle colonne. Avance de 1 et refixe la valeur de la colonne." },
-  { name: "Momie", effect: "Avance de 2, ou de 4 si elle est jouee sur une carte face cachee." },
+  { name: "Banshee", effect: "Toutes les Banshee ont une lune. Avance de 1 par carte retournee de votre cote." },
+  { name: "Blob", effect: "Avance de 2 puis vous pouvez retourner une carte visible, chez vous ou chez l'adversaire." },
+  { name: "Diable", effect: "Defaussez une colonne au choix chez vous." },
+  { name: "Momie", effect: "Avance de 1, ou de 4 si elle est jouee sur une carte face cachee." },
+  { name: "Idole", effect: "Avance de 1 par chef visible de votre cote." },
 ];
 
-const BOARD_RULES = [
-  { name: "Case 5", effect: "Vous pouvez retourner la derniere carte visible d'une colonne, chez vous ou chez l'adversaire." },
-  { name: "Case 9", effect: "Stop : si un deplacement atteint ou depasse cette case, le pion s'y arrete." },
+const BOARD_RULES_BY_TYPE = {
+  blank: [
+    { name: "Plateau vierge", effect: "Aucun pouvoir sur les cases." },
+  ],
+  base: [
+    { name: "Case 5", effect: "Refill : comble les emplacements vides de la rangee." },
+    { name: "Case 8", effect: "Stop : si un deplacement atteint ou depasse cette case, le pion s'y arrete. La Sorciere l'ignore." },
+    { name: "Case 10", effect: "Remove : vous pouvez defausser une de vos colonnes, ou passer." },
+  ],
+  test: [
+    { name: "Case 5", effect: "Sabotage : l'adversaire peut detruire une carte visible du dessus chez le joueur arrive sur la case, ou passer." },
+    { name: "Case 8", effect: "Stop : si un deplacement atteint ou depasse cette case, le pion s'y arrete. La Sorciere l'ignore." },
+    { name: "Case 10", effect: "Remove : vous pouvez defausser une de vos colonnes, ou passer." },
+  ],
+};
+
+const SHARED_BOARD_RULES = [
   { name: "Chefs", effect: "Apres une etoile, les deux pions reviennent a 0 puis avancent du nombre de chefs poses de chaque cote." },
-  { name: "Etoile", effect: "Quand une etoile est gagnee, la rangee commune est automatiquement refaite." },
+  { name: "Etoile", effect: "La case etoile est en 16. Quand une etoile est gagnee, la rangee commune est automatiquement refaite." },
 ];
 
-const FAMILY_OPTIONS = [
+const BASE_FAMILY_OPTIONS = [
   {
     type: "sorciere",
     label: "Sorciere",
-    effect: "Avance de 3 si votre pion est dans la zone de la colonne jouee.",
+    effect: "Avance de 1, ou de 3 si votre pion est dans la zone de la colonne jouee. Ignore les stops.",
   },
   {
     type: "vampire",
@@ -149,21 +168,183 @@ const FAMILY_OPTIONS = [
     effect: "Copie la valeur au meme niveau a gauche ou a droite.",
   },
   {
+    type: "momie",
+    label: "Momie",
+    effect: "Avance de 1, ou de 4 si elle est jouee sur une carte face cachee.",
+  },
+];
+
+const OPTIONAL_FAMILY_OPTIONS = [
+  {
     type: "banshee",
     label: "Banshee",
-    effect: "Defausse une de vos colonnes, puis avance du nombre de lunes dedans.",
+    effect: "Avance de 1 par carte retournee de votre cote.",
+  },
+  {
+    type: "idole",
+    label: "Idole",
+    effect: "Avance de 1 par chef visible de votre cote.",
   },
   {
     type: "blob",
     label: "Blob",
-    effect: "Pose libre. Avance de 1 et refixe la valeur de la colonne.",
+    effect: "Avance de 2 puis peut retourner une carte visible chez vous ou chez l'adversaire.",
   },
   {
-    type: "momie",
-    label: "Momie",
-    effect: "Avance de 2, ou de 4 si elle est jouee sur une carte face cachee.",
+    type: "diable",
+    label: "Diable",
+    effect: "Defausse une colonne au choix chez vous.",
   },
 ];
+
+const ALL_FAMILY_OPTIONS = [...BASE_FAMILY_OPTIONS, ...OPTIONAL_FAMILY_OPTIONS];
+const DEFAULT_FAMILY_TYPES = BASE_FAMILY_OPTIONS.map((family) => family.type);
+const ALL_FAMILY_TYPES = ALL_FAMILY_OPTIONS.map((family) => family.type);
+
+const BOARD_OPTIONS = [
+  {
+    type: "blank",
+    label: "Plateau vierge",
+    effect: "Aucun pouvoir sur les cases.",
+  },
+  {
+    type: "base",
+    label: "Plateau base",
+    effect: "Case 5 Refill, case 8 Stop, case 10 Remove.",
+  },
+  {
+    type: "test",
+    label: "Plateau test",
+    effect: "Case 5 Sabotage adverse, case 8 Stop, case 10 Remove.",
+  },
+];
+
+function createFamilyCardConfig(values, moonIndexes = [], chiefIndexes = []) {
+  const moonSet = new Set(moonIndexes);
+  const chiefSet = new Set(chiefIndexes);
+
+  return {
+    values: [...values],
+    moons: values.map((_, index) => moonSet.has(index)),
+    chiefs: values.map((_, index) => chiefSet.has(index)),
+  };
+}
+
+const DEFAULT_FAMILY_CARD_CONFIGS = {
+  sorciere: createFamilyCardConfig(STANDARD_VALUES, [2], [9]),
+  vampire: createFamilyCardConfig(PREMIUM_VALUES, [5], []),
+  squelette: createFamilyCardConfig(STANDARD_VALUES, [9], [0]),
+  loup: createFamilyCardConfig(STANDARD_VALUES, [8], [2]),
+  zombie: createFamilyCardConfig(STANDARD_VALUES, [], [0, 2, 4, 6, 8]),
+  reflet: createFamilyCardConfig(PREMIUM_VALUES, [5], [7]),
+  banshee: createFamilyCardConfig(STANDARD_VALUES, [], [6]),
+  blob: createFamilyCardConfig(STANDARD_VALUES, [6], [9]),
+  diable: createFamilyCardConfig(PREMIUM_VALUES, [], []),
+  momie: createFamilyCardConfig(STANDARD_VALUES, [7], [9]),
+  idole: createFamilyCardConfig(PREMIUM_VALUES, [], [1, 3, 5, 7, 9]),
+};
+
+function cloneFamilyCardConfigs() {
+  return JSON.parse(JSON.stringify(DEFAULT_FAMILY_CARD_CONFIGS));
+}
+
+function getEnabledIndexes(flags) {
+  return flags
+    .map((enabled, index) => (enabled ? index : null))
+    .filter((index) => index !== null);
+}
+
+function buildFamilyConfigsPayload(familyCardConfigs) {
+  return Object.fromEntries(
+    Object.entries(familyCardConfigs).map(([type, config]) => [
+      type,
+      {
+        values: config.values.map((value) => Number(value) || 0),
+        moonIndexes: getEnabledIndexes(config.moons),
+        chiefIndexes: getEnabledIndexes(config.chiefs),
+      },
+    ])
+  );
+}
+
+function FamilyCardConfigEditor({
+  family,
+  config,
+  onValueChange,
+  onToggleFlag,
+  onReset,
+  onApplyPreset,
+}) {
+  const creature = CREATURES[family.type];
+
+  return (
+    <div style={cardTuningPanelStyle}>
+      <div style={cardTuningHeaderStyle}>
+        <div>
+          <div style={{ fontWeight: 900 }}>
+            <span style={{ marginRight: 6 }}>{creature?.icon}</span>
+            {family.label}
+          </div>
+          <div style={familyEffectStyle}>{family.effect}</div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => onApplyPreset(family.type, STANDARD_VALUES)}
+            style={miniButtonStyle}
+          >
+            Standard
+          </button>
+          <button
+            type="button"
+            onClick={() => onApplyPreset(family.type, PREMIUM_VALUES)}
+            style={miniButtonStyle}
+          >
+            Premium
+          </button>
+          <button
+            type="button"
+            onClick={() => onReset(family.type)}
+            style={miniButtonStyle}
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+      <div style={cardTuningGridStyle}>
+        {config.values.map((value, index) => (
+          <div key={`${family.type}-${index}`} style={cardTuningCellStyle}>
+            <div style={cardNumberStyle}>Carte {index + 1}</div>
+            <input
+              type="number"
+              min="0"
+              max="9"
+              value={value}
+              onChange={(event) =>
+                onValueChange(family.type, index, event.target.value)
+              }
+              style={cardValueInputStyle}
+            />
+            <button
+              type="button"
+              onClick={() => onToggleFlag(family.type, index, "moons")}
+              style={config.moons[index] ? activeMoonButtonStyle : cardFlagButtonStyle}
+            >
+              Lune
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleFlag(family.type, index, "chiefs")}
+              style={config.chiefs[index] ? activeChiefButtonStyle : cardFlagButtonStyle}
+            >
+              Chef
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const initialSession = useMemo(getStoredSession, []);
@@ -171,8 +352,11 @@ export default function App() {
   const [game, setGame] = useState(null);
   const [createName, setCreateName] = useState("");
   const [createMode, setCreateMode] = useState("online");
-  const [selectedFamilyTypes, setSelectedFamilyTypes] = useState(
-    FAMILY_OPTIONS.map((family) => family.type)
+  const [selectedFamilyTypes, setSelectedFamilyTypes] = useState(DEFAULT_FAMILY_TYPES);
+  const [selectedBoardType, setSelectedBoardType] = useState("base");
+  const [advancedCardsOpen, setAdvancedCardsOpen] = useState(false);
+  const [familyCardConfigs, setFamilyCardConfigs] = useState(
+    cloneFamilyCardConfigs
   );
   const [joinName, setJoinName] = useState("");
   const [joinCode, setJoinCode] = useState(initialSession.gameId || "");
@@ -190,6 +374,10 @@ export default function App() {
   );
   const eventSourceRef = useRef(null);
   const previousGameRef = useRef(null);
+  const activeFamilyTypes = useMemo(
+    () => ALL_FAMILY_TYPES.filter((type) => selectedFamilyTypes.includes(type)),
+    [selectedFamilyTypes]
+  );
 
   useEffect(() => {
     if (!session.gameId || !session.playerId) {
@@ -254,6 +442,8 @@ export default function App() {
           playerName: createName,
           mode: createMode,
           familyTypes: selectedFamilyTypes,
+          familyConfigs: buildFamilyConfigsPayload(familyCardConfigs),
+          boardType: selectedBoardType,
         }),
       });
 
@@ -274,12 +464,62 @@ export default function App() {
     }
   }
 
-  function toggleFamily(type) {
+  function toggleFamilyType(familyType) {
     setSelectedFamilyTypes((current) =>
-      current.includes(type)
-        ? current.filter((entry) => entry !== type)
-        : [...current, type]
+      current.includes(familyType)
+        ? current.filter((entry) => entry !== familyType)
+        : [...current, familyType]
     );
+  }
+
+  function updateFamilyCardValue(familyType, cardIndex, rawValue) {
+    const numericValue = Number(rawValue);
+    const nextValue = Number.isFinite(numericValue)
+      ? Math.max(0, Math.min(9, Math.trunc(numericValue)))
+      : 0;
+
+    setFamilyCardConfigs((current) => ({
+      ...current,
+      [familyType]: {
+        ...current[familyType],
+        values: current[familyType].values.map((value, index) =>
+          index === cardIndex ? nextValue : value
+        ),
+      },
+    }));
+  }
+
+  function toggleFamilyCardFlag(familyType, cardIndex, flagName) {
+    setFamilyCardConfigs((current) => ({
+      ...current,
+      [familyType]: {
+        ...current[familyType],
+        [flagName]: current[familyType][flagName].map((enabled, index) =>
+          index === cardIndex ? !enabled : enabled
+        ),
+      },
+    }));
+  }
+
+  function resetFamilyCardConfig(familyType) {
+    setFamilyCardConfigs((current) => ({
+      ...current,
+      [familyType]: cloneFamilyCardConfigs()[familyType],
+    }));
+  }
+
+  function resetAllFamilyCardConfigs() {
+    setFamilyCardConfigs(cloneFamilyCardConfigs());
+  }
+
+  function applyFamilyValuePreset(familyType, values) {
+    setFamilyCardConfigs((current) => ({
+      ...current,
+      [familyType]: {
+        ...current[familyType],
+        values: [...values],
+      },
+    }));
   }
 
   async function joinGame() {
@@ -353,11 +593,22 @@ export default function App() {
   const viewerCanAct = Boolean(game?.viewerCanAct);
   const activePlayerBlocked = Boolean(game?.activePlayerBlocked);
   const pendingChoice = game?.pendingChoice || null;
+  const hasPendingChoice = Boolean(game?.hasPendingChoice);
+  const isRemoveDiscardChoice =
+    pendingChoice?.type === "banshee_discard" &&
+    (pendingChoice?.label === "Remove" || pendingChoice?.boardOnly);
+  const isOptionalBansheeChoice =
+    pendingChoice?.type === "banshee_discard" &&
+    (pendingChoice?.optional || isRemoveDiscardChoice);
   const selectedCard =
     game && game.selectedCardIndex !== null ? game.row[game.selectedCardIndex] : null;
   const selectedCardLabel = selectedCard
     ? CREATURES[selectedCard.type]?.label || selectedCard.type
     : "";
+  const boardRules = [
+    ...(BOARD_RULES_BY_TYPE[game?.boardType || "base"] || BOARD_RULES_BY_TYPE.base),
+    ...SHARED_BOARD_RULES,
+  ];
 
   useEffect(() => {
     if (!viewerCanAct || pendingChoice || activePlayerBlocked || !selectedCard) {
@@ -523,14 +774,39 @@ export default function App() {
                 <option value="bot">Partie contre IA</option>
               </select>
               <div style={familySelectorStyle}>
-                <div style={{ fontWeight: 800, marginBottom: 8 }}>Familles en jeu</div>
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>
+                  Familles de la partie
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFamilyTypes(DEFAULT_FAMILY_TYPES)}
+                    style={secondaryChoiceButtonStyle}
+                  >
+                    Jeu de base
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFamilyTypes(ALL_FAMILY_TYPES)}
+                    style={secondaryChoiceButtonStyle}
+                  >
+                    Toutes les familles
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFamilyTypes([])}
+                    style={secondaryChoiceButtonStyle}
+                  >
+                    Vider
+                  </button>
+                </div>
                 <div style={familyGridStyle}>
-                  {FAMILY_OPTIONS.map((family) => (
+                  {ALL_FAMILY_OPTIONS.map((family) => (
                     <label key={family.type} style={familyOptionStyle}>
                       <input
                         type="checkbox"
                         checked={selectedFamilyTypes.includes(family.type)}
-                        onChange={() => toggleFamily(family.type)}
+                        onChange={() => toggleFamilyType(family.type)}
                       />
                       <span>
                         <span style={familyLabelStyle}>{family.label}</span>
@@ -539,33 +815,99 @@ export default function App() {
                     </label>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                {!selectedFamilyTypes.length ? (
+                  <div style={{ marginTop: 8, color: "#991b1b", fontWeight: 700 }}>
+                    Selectionnez au moins une famille pour creer la partie.
+                  </div>
+                ) : null}
+              </div>
+
+              <div style={familySelectorStyle}>
+                <div style={advancedHeaderStyle}>
+                  <div>
+                    <div style={{ fontWeight: 800 }}>
+                      Reglages avances des cartes
+                    </div>
+                    <div style={{ color: "#475569", fontSize: 13, marginTop: 3 }}>
+                      Modifiez les valeurs, les lunes et les chefs avant de creer la partie.
+                    </div>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setSelectedFamilyTypes(FAMILY_OPTIONS.map((family) => family.type))}
-                    style={miniButtonStyle}
+                    onClick={() => setAdvancedCardsOpen((open) => !open)}
+                    style={secondaryChoiceButtonStyle}
                   >
-                    Tout cocher
+                    {advancedCardsOpen ? "Masquer" : "Modifier"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedFamilyTypes([])}
-                    style={miniButtonStyle}
-                  >
-                    Tout retirer
-                  </button>
+                </div>
+                {advancedCardsOpen ? (
+                  <>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      <button
+                        type="button"
+                        onClick={resetAllFamilyCardConfigs}
+                        style={secondaryChoiceButtonStyle}
+                      >
+                        Reset toutes les cartes
+                      </button>
+                    </div>
+                    {activeFamilyTypes.length ? (
+                      <div style={cardTuningListStyle}>
+                        {activeFamilyTypes.map((familyType) => {
+                          const family = ALL_FAMILY_OPTIONS.find(
+                            (entry) => entry.type === familyType
+                          );
+
+                          return (
+                            <FamilyCardConfigEditor
+                              key={familyType}
+                              family={family}
+                              config={familyCardConfigs[familyType]}
+                              onValueChange={updateFamilyCardValue}
+                              onToggleFlag={toggleFamilyCardFlag}
+                              onReset={resetFamilyCardConfig}
+                              onApplyPreset={applyFamilyValuePreset}
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ color: "#92400e", fontWeight: 700 }}>
+                        Selectionnez au moins une famille pour afficher ses cartes.
+                      </div>
+                    )}
+                  </>
+                ) : null}
+              </div>
+
+              <div style={familySelectorStyle}>
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>
+                  Plateau
+                </div>
+                <div style={familyGridStyle}>
+                  {BOARD_OPTIONS.map((board) => (
+                    <label key={board.type} style={familyOptionStyle}>
+                      <input
+                        type="radio"
+                        name="boardType"
+                        checked={selectedBoardType === board.type}
+                        onChange={() => setSelectedBoardType(board.type)}
+                      />
+                      <span>
+                        <span style={familyLabelStyle}>{board.label}</span>
+                        <span style={familyEffectStyle}>{board.effect}</span>
+                      </span>
+                    </label>
+                  ))}
                 </div>
               </div>
               <button
                 onClick={createGame}
-                disabled={busy || selectedFamilyTypes.length === 0}
+                disabled={busy || !selectedFamilyTypes.length}
                 style={primaryButtonStyle}
               >
                 {createMode === "bot" ? "Creer une partie contre IA" : "Creer la partie"}
               </button>
-              {selectedFamilyTypes.length === 0 ? (
-                <div style={smallHelpStyle}>Choisissez au moins une famille.</div>
-              ) : null}
             </Panel>
 
             <Panel title="Rejoindre une partie">
@@ -640,7 +982,7 @@ export default function App() {
                       <div style={{ animation: animationState.victory ? "victoryGlow 1400ms ease-in-out infinite" : "none" }}>
                         <StatusPill label={`Victoire : ${game.winner}`} tone="good" />
                       </div>
-                    ) : pendingChoice ? (
+                    ) : hasPendingChoice ? (
                       <StatusPill label="Choix en attente" tone="warn" />
                     ) : viewerCanAct ? (
                       <StatusPill label="A vous de jouer" tone="good" />
@@ -672,7 +1014,13 @@ export default function App() {
                     ? pendingChoice.type === "reflet"
                       ? "Choisissez si le Reflet copie la carte de gauche ou de droite."
                       : pendingChoice.type === "banshee_discard"
-                      ? "Banshee : choisissez une colonne a defausser."
+                      ? isRemoveDiscardChoice
+                        ? `Case ${pendingChoice.sourceCase} : choisissez une colonne a defausser, ou passez.`
+                        : "Banshee : carte lune, avancez de 1 par carte retournee de votre cote."
+                      : pendingChoice.type === "board_destroy"
+                      ? `${pendingChoice.label || "Sabotage"} : choisissez une carte visible a detruire, ou passez.`
+                      : pendingChoice.type === "diable_discard"
+                      ? "Diable : choisissez une de vos colonnes a defausser."
                       : pendingChoice.type === "faucheur_discard"
                       ? "Faucheur : choisissez une carte visible du dessus a defausser."
                       : `Case ${pendingChoice.sourceCase} : choisissez une carte a retourner, ou passez.`
@@ -717,9 +1065,9 @@ export default function App() {
               {pendingChoice?.type === "banshee_discard" ? (
                 <div style={choicePanelStyle}>
                   <div style={{ fontWeight: 800, marginBottom: 10 }}>
-                    Banshee : defausser une colonne
+                    {(isRemoveDiscardChoice ? "Remove" : pendingChoice.label) || "Banshee"} : defausser une colonne
                   </div>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: isOptionalBansheeChoice ? 10 : 0 }}>
                     {pendingChoice.options.map((option) => (
                       <button
                         key={`${option.targetPlayerIndex}-${option.columnIndex}`}
@@ -737,6 +1085,51 @@ export default function App() {
                       >
                         {option.targetPlayerName} col {option.columnIndex + 1} :{" "}
                         {option.moonCount} lune(s)
+                      </button>
+                    ))}
+                  </div>
+                  {isOptionalBansheeChoice ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        sendAction({
+                          type: "resolve_banshee_discard",
+                          skip: true,
+                        });
+                      }}
+                      style={secondaryChoiceButtonStyle}
+                    >
+                      Ne rien defausser
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {pendingChoice?.type === "diable_discard" ? (
+                <div style={choicePanelStyle}>
+                  <div style={{ fontWeight: 800, marginBottom: 10 }}>
+                    Diable : defausser une de vos colonnes
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {pendingChoice.options.map((option) => (
+                      <button
+                        key={`${option.targetPlayerIndex}-${option.columnIndex}`}
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          sendAction({
+                            type: "resolve_diable_discard",
+                            targetPlayerIndex: option.targetPlayerIndex,
+                            columnIndex: option.columnIndex,
+                          });
+                        }}
+                        style={choiceButtonStyle}
+                      >
+                        {option.targetPlayerName} col {option.columnIndex + 1} :{" "}
+                        {option.columnSize} carte(s), {option.moonCount} lune(s)
                       </button>
                     ))}
                   </div>
@@ -770,6 +1163,50 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                </div>
+              ) : null}
+
+              {pendingChoice?.type === "board_destroy" ? (
+                <div style={choicePanelStyle}>
+                  <div style={{ fontWeight: 800, marginBottom: 10 }}>
+                    {pendingChoice.label || "Sabotage"} : detruire une carte visible
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                    {pendingChoice.options.map((option) => (
+                      <button
+                        key={`${option.targetPlayerIndex}-${option.columnIndex}-${option.rowIndex}`}
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          sendAction({
+                            type: "resolve_board_destroy",
+                            targetPlayerIndex: option.targetPlayerIndex,
+                            columnIndex: option.columnIndex,
+                            rowIndex: option.rowIndex,
+                          });
+                        }}
+                        style={choiceButtonStyle}
+                      >
+                        {option.targetPlayerName} col {option.columnIndex + 1} :{" "}
+                        {option.cardLabel} {option.cardValue}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      sendAction({
+                        type: "resolve_board_destroy",
+                        skip: true,
+                      });
+                    }}
+                    style={secondaryChoiceButtonStyle}
+                  >
+                    Ne rien detruire
+                  </button>
                 </div>
               ) : null}
 
@@ -819,7 +1256,9 @@ export default function App() {
 
               {game.phase === "playing" && !game.winner && !viewerCanAct ? (
                 <div style={waitingBannerStyle}>
-                  {game.players[game.currentPlayer]?.isBot
+                  {hasPendingChoice
+                    ? `Choix en attente : ${game.pendingChoicePlayerName || "un joueur"} doit agir.`
+                    : game.players[game.currentPlayer]?.isBot
                     ? `${game.currentPlayerName} reflechit...`
                     : `Attendez l'action de ${game.currentPlayerName}.`}
                 </div>
@@ -887,6 +1326,7 @@ export default function App() {
                         columnIndex,
                       })
                 }
+                boardType={game.boardType}
               />
             </Panel>
 
@@ -907,7 +1347,7 @@ export default function App() {
 
                 <div style={rulesCardStyle}>
                   <div style={rulesTitleStyle}>Plateau</div>
-                  {BOARD_RULES.map((rule) => (
+                  {boardRules.map((rule) => (
                     <div key={rule.name} style={ruleRowStyle}>
                       <strong>{rule.name}</strong> : {rule.effect}
                     </div>
@@ -956,16 +1396,6 @@ const smallButtonStyle = {
   cursor: "pointer",
 };
 
-const miniButtonStyle = {
-  padding: "8px 10px",
-  borderRadius: 10,
-  border: "1px solid #cbd5e1",
-  background: "white",
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 700,
-};
-
 const familySelectorStyle = {
   border: "1px solid #cbd5e1",
   borderRadius: 14,
@@ -991,6 +1421,12 @@ const familyOptionStyle = {
   cursor: "pointer",
 };
 
+const fixedFamilyOptionStyle = {
+  ...familyOptionStyle,
+  cursor: "default",
+  background: "#eef2ff",
+};
+
 const familyLabelStyle = {
   display: "block",
   fontWeight: 800,
@@ -1004,11 +1440,95 @@ const familyEffectStyle = {
   lineHeight: 1.25,
 };
 
-const smallHelpStyle = {
-  marginTop: 8,
+const advancedHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const cardTuningListStyle = {
+  display: "grid",
+  gap: 12,
+};
+
+const cardTuningPanelStyle = {
+  border: "1px solid #e2e8f0",
+  borderRadius: 14,
+  background: "white",
+  padding: 12,
+};
+
+const cardTuningHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+  marginBottom: 10,
+};
+
+const cardTuningGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(92px, 1fr))",
+  gap: 8,
+};
+
+const cardTuningCellStyle = {
+  padding: 8,
+  borderRadius: 12,
+  border: "1px solid #e2e8f0",
+  background: "#f8fafc",
+};
+
+const cardNumberStyle = {
+  fontSize: 11,
+  fontWeight: 800,
+  color: "#475569",
+  marginBottom: 6,
+};
+
+const cardValueInputStyle = {
+  width: "100%",
+  padding: "7px 8px",
+  borderRadius: 8,
+  border: "1px solid #cbd5e1",
+  boxSizing: "border-box",
+  fontWeight: 900,
+  marginBottom: 6,
+};
+
+const miniButtonStyle = {
+  padding: "7px 9px",
+  borderRadius: 10,
+  border: "1px solid #cbd5e1",
+  background: "#f8fafc",
+  cursor: "pointer",
+  fontWeight: 800,
   fontSize: 12,
-  color: "#9a3412",
-  fontWeight: 700,
+};
+
+const cardFlagButtonStyle = {
+  ...miniButtonStyle,
+  width: "100%",
+  marginTop: 4,
+  background: "white",
+  color: "#475569",
+};
+
+const activeMoonButtonStyle = {
+  ...cardFlagButtonStyle,
+  background: "#fef3c7",
+  border: "1px solid #f59e0b",
+  color: "#92400e",
+};
+
+const activeChiefButtonStyle = {
+  ...cardFlagButtonStyle,
+  background: "#ede9fe",
+  border: "1px solid #8b5cf6",
+  color: "#5b21b6",
 };
 
 const topBarStyle = {
